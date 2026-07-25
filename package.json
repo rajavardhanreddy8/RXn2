@@ -1,0 +1,24 @@
+{
+  "name": "scaleup-patent-data-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline-first evidence database for drug patent process scale-up research.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "db:init": "node src/cli.js init-db --db data/curated/scaleup.sqlite",
+    "data:validate": "node src/cli.js validate --input examples/curated_examples.jsonl",
+    "data:ingest": "node src/cli.js ingest --db data/curated/scaleup.sqlite --input examples/curated_examples.jsonl",
+    "data:split": "node src/cli.js split --input examples/curated_examples.jsonl --output data/processed/splits.json --seed fixture-12 --db data/curated/scaleup.sqlite --dataset-version working-fixtures-v1",
+    "data:quality": "node src/cli.js quality --db data/curated/scaleup.sqlite",
+    "catalogue:init": "python scripts/bulk_pipeline.py init",
+    "catalogue:coverage": "python scripts/bulk_pipeline.py refresh-coverage",
+    "catalogue:summary": "python scripts/bulk_pipeline.py summary",
+    "web:build": "npm --prefix apps/web run build",
+    "app:up": "docker compose up --build",
+    "api:test": "docker compose run --rm api pytest -q apps/api/tests",
+    "test": "node --test"
+  }
+}

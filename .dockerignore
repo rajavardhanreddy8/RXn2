@@ -1,0 +1,14 @@
+.git
+.agents
+.codex
+**/node_modules
+**/.npm-cache
+**/dist
+**/__pycache__
+**/.pytest_cache
+data/raw
+data/processed
+data/manifests
+data/curated/*.sqlite
+data/curated/*.sqlite-*
+*.log

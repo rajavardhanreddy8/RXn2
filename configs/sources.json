@@ -1,0 +1,283 @@
+{
+  "registry_version": "1.0.0",
+  "reviewed_on": "2026-07-22",
+  "sources": [
+    {
+      "id": "synthetic_fixture",
+      "name": "Repository synthetic fixtures",
+      "authority": "project",
+      "role": "pipeline_testing_only",
+      "collection_mode": "local_fixture",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "permitted",
+      "license": "CC0-1.0",
+      "homepage": null,
+      "refresh": "on_change",
+      "caveats": ["Synthetic records cannot support scientific or patent conclusions."]
+    },
+    {
+      "id": "surechembl_bulk",
+      "name": "SureChEMBL bulk data",
+      "authority": "EMBL-EBI",
+      "role": "primary_patent_compound_candidate_backbone",
+      "collection_mode": "bulk_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "permitted_with_attribution",
+      "license": "CC-BY-4.0",
+      "homepage": "https://chembl.gitbook.io/surechembl/downloads/bulk-data",
+      "download_root": "https://ftp.ebi.ac.uk/pub/databases/chembl/SureChEMBL/bulk_data/",
+      "refresh": "biweekly_full_snapshot",
+      "expected_assets": [
+        "compounds.parquet",
+        "patents.parquet",
+        "patent_compound_map.parquet",
+        "fields.parquet",
+        "biomedical_entities.parquet",
+        "biomedical_locations.parquet",
+        "biomedical_types.parquet"
+      ],
+      "caveats": [
+        "Chemical and biomedical annotations are machine extracted and require downstream validation.",
+        "A compound mention does not prove that the compound was made in an executed example.",
+        "Snapshot schemas may change between releases."
+      ]
+    },
+    {
+      "id": "uspto_fulltext_bulk",
+      "name": "USPTO patent grant and application full-text XML",
+      "authority": "USPTO",
+      "role": "primary_us_procedure_text",
+      "collection_mode": "operator_downloaded_bulk_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "source_terms_apply",
+      "license": "US-government-data-check-release-terms",
+      "homepage": "https://data.uspto.gov/",
+      "format_documentation": "https://www.uspto.gov/learning-and-resources/xml-resources",
+      "refresh": "weekly",
+      "access_requirements": [
+        "USPTO.gov registration is required for Open Data Portal access from 2026-06-18.",
+        "The Open Data Portal bulk-data API requires an API key."
+      ],
+      "caveats": [
+        "Multiple XML/SGML schema generations exist and parsers must record the detected version.",
+        "Publication text is evidence of disclosure, not independent proof that an experiment was performed."
+      ]
+    },
+    {
+      "id": "patentsview_bulk",
+      "name": "PatentsView research data",
+      "authority": "USPTO",
+      "role": "us_bibliography_assignee_and_entity_resolution",
+      "collection_mode": "bulk_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "source_terms_apply",
+      "license": "verify_each_release",
+      "homepage": "https://www.uspto.gov/ip-policy/economic-research/patentsview",
+      "refresh": "release_based",
+      "caveats": [
+        "Research-grade enrichment; it does not constitute the official USPTO record.",
+        "Entity-resolution identifiers can change between releases."
+      ]
+    },
+    {
+      "id": "fda_orange_book",
+      "name": "FDA Orange Book data files",
+      "authority": "FDA",
+      "role": "high_precision_approved_drug_to_us_patent_seed",
+      "collection_mode": "bulk_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "source_terms_apply",
+      "license": "US-government-data-check-release-terms",
+      "homepage": "https://www.fda.gov/drugs/drug-approvals-and-databases/orange-book-data-files",
+      "refresh": "monthly",
+      "expected_assets": ["Products.txt", "Patent.txt", "Exclusivity.txt"],
+      "caveats": [
+        "Patent links are sponsor-submitted listings for approved U.S. products, not a complete process-patent landscape.",
+        "This source excludes unapproved programs and most non-U.S. regulatory relationships."
+      ]
+    },
+    {
+      "id": "drugs_at_fda",
+      "name": "Drugs@FDA data files",
+      "authority": "FDA",
+      "role": "approval_and_submission_milestones",
+      "collection_mode": "bulk_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "source_terms_apply",
+      "license": "US-government-data-check-release-terms",
+      "homepage": "https://www.fda.gov/drugs/drug-approvals-and-databases/drugsfda-data-files",
+      "refresh": "weekday",
+      "caveats": ["Regulatory milestones do not identify manufacturing batch scale by themselves."]
+    },
+    {
+      "id": "clinicaltrials_gov",
+      "name": "ClinicalTrials.gov study records",
+      "authority": "NIH/NLM",
+      "role": "clinical_stage_timeline_enrichment",
+      "collection_mode": "query_export_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "source_terms_apply",
+      "license": "US-government-data-check-record-terms",
+      "homepage": "https://clinicaltrials.gov/data-about-studies/learn-about-api",
+      "refresh": "weekday",
+      "caveats": [
+        "Study records are submitted by sponsors/investigators and are not proof of manufacturing scale.",
+        "Drug-name linkage requires alias and sponsor-aware review."
+      ]
+    },
+    {
+      "id": "chembl_snapshot",
+      "name": "ChEMBL database release",
+      "authority": "EMBL-EBI",
+      "role": "drug_compound_target_and_bioactivity_identity",
+      "collection_mode": "database_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "share_alike_and_attribution",
+      "license": "CC-BY-SA-3.0",
+      "homepage": "https://chembl.gitbook.io/chembl-interface-documentation/downloads",
+      "refresh": "release_based",
+      "caveats": ["Keep ChEMBL-derived distributions in a license-compatible layer."]
+    },
+    {
+      "id": "pubchem_bulk",
+      "name": "PubChem bulk data",
+      "authority": "NIH/NLM",
+      "role": "chemical_identity_synonyms_and_cross_references",
+      "collection_mode": "bulk_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "contributor_specific",
+      "license": "mixed_by_contributor",
+      "homepage": "https://pubchem.ncbi.nlm.nih.gov/docs/downloads",
+      "refresh": "source_specific",
+      "caveats": [
+        "PubChem aggregates many contributors; provenance and license must be retained per assertion.",
+        "A synonym match alone is insufficient for a same-drug label."
+      ]
+    },
+    {
+      "id": "unichem_bulk",
+      "name": "UniChem bulk mappings",
+      "authority": "EMBL-EBI",
+      "role": "structure_identifier_cross_reference",
+      "collection_mode": "bulk_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "source_specific",
+      "license": "source-specific",
+      "homepage": "https://chembl.gitbook.io/unichem/downloads",
+      "refresh": "weekly",
+      "caveats": [
+        "UniChem maps structure identifiers; it does not itself establish regulatory approval.",
+        "Retain the upstream source identifier and assignment provenance."
+      ]
+    },
+    {
+      "id": "ema_medicines",
+      "name": "EMA medicines data",
+      "authority": "European Medicines Agency",
+      "role": "eu_regulatory_product_and_active_substance_catalogue",
+      "collection_mode": "bulk_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "source_terms_apply",
+      "license": "EMA-reuse-policy",
+      "homepage": "https://www.ema.europa.eu/en/medicines/download-medicine-data",
+      "refresh": "provider_managed",
+      "caveats": [
+        "Medicine records require active-substance normalization and biologic exclusion.",
+        "Regulatory product presence does not imply public process-route evidence."
+      ]
+    },
+    {
+      "id": "open_reaction_database",
+      "name": "Open Reaction Database",
+      "authority": "Open Reaction Database project",
+      "role": "reaction_schema_and_pretraining_corpus",
+      "collection_mode": "repository_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "share_alike_and_attribution",
+      "license": "CC-BY-SA",
+      "homepage": "https://docs.open-reaction-database.org/en/stable/overview.html",
+      "refresh": "repository_release",
+      "caveats": [
+        "Useful for reaction representation and pretraining; not a ready-made scale-up ground truth.",
+        "Single-step representation does not capture every process operation."
+      ]
+    },
+    {
+      "id": "lowe_uspto_reactions",
+      "name": "Chemical reactions from US patents (1976-Sep2016)",
+      "authority": "Daniel Lowe / Figshare",
+      "role": "reaction_pretraining_and_patent_paragraph_candidates",
+      "collection_mode": "versioned_dataset_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "permitted",
+      "license": "CC0",
+      "homepage": "https://figshare.com/articles/dataset/Chemical_reactions_from_US_patents_1976-Sep2016_/5104873",
+      "refresh": "fixed_2017_release",
+      "caveats": [
+        "Duplicates are frequent and atom maps can be wrong.",
+        "Text-mined or calculated yield is not equivalent to manually verified process evidence."
+      ]
+    },
+    {
+      "id": "epo_ops",
+      "name": "EPO Open Patent Services",
+      "authority": "EPO",
+      "role": "optional_family_legal_status_and_non_us_backfill",
+      "collection_mode": "optional_authenticated_api_backfill",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "derived_products_only_under_terms",
+      "license": "EPO-OPS-terms",
+      "homepage": "https://www.epo.org/en/searching-for-patents/data/web-services/ops",
+      "refresh": "on_demand",
+      "access_requirements": ["Registration and OAuth credentials.", "Free threshold is 4 GB per week."],
+      "caveats": ["Optional enrichment only; core builds must succeed without it."]
+    },
+    {
+      "id": "google_patents_bigquery",
+      "name": "Google Patents Public Datasets on BigQuery",
+      "authority": "Google / contributing data providers",
+      "role": "optional_worldwide_bibliographic_and_similarity_export",
+      "collection_mode": "optional_query_export_snapshot",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": true,
+      "redistribution": "table_specific",
+      "license": "table_specific",
+      "homepage": "https://cloud.google.com/blog/topics/public-datasets/google-patents-public-datasets-connecting-public-paid-and-private-patent-data",
+      "refresh": "provider_managed",
+      "access_requirements": ["Google Cloud project; query costs may apply."],
+      "caveats": ["Export only the reproducible candidate slice; do not make BigQuery a serving dependency."]
+    },
+    {
+      "id": "wipo_patentscope_public",
+      "name": "WIPO PATENTSCOPE public website",
+      "authority": "WIPO",
+      "role": "manual_verification_only",
+      "collection_mode": "manual_lookup_only",
+      "runtime_dependency": false,
+      "automated_acquisition_allowed": false,
+      "redistribution": "restricted",
+      "license": "WIPO-PATENTSCOPE-terms",
+      "homepage": "https://www.wipo.int/en/web/patentscope",
+      "terms": "https://www.wipo.int/en/web/patentscope/data/terms_patentscope",
+      "refresh": "not_applicable",
+      "caveats": [
+        "Public-site terms forbid automated queries, bulk acquisition, bulk storage, and scraping.",
+        "Use WIPO's licensed PCT data products if programmatic PCT full text is required."
+      ]
+    }
+  ]
+}

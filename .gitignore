@@ -1,0 +1,27 @@
+node_modules/
+.npm-cache/
+.npm-playwright-cache/
+dist/
+output/playwright/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.tsbuildinfo
+.env
+*.log
+
+# Raw snapshots are immutable local inputs, not source-control content.
+data/raw/**
+!data/raw/.gitkeep
+
+# Rebuildable database/export artifacts.
+data/curated/*.sqlite
+data/curated/*.sqlite-*
+data/processed/*
+data/manifests/*
+!data/processed/.gitkeep
+!data/manifests/.gitkeep
+
+# Model weights and run outputs are versioned in a model registry, not Git.
+models/
+runs/

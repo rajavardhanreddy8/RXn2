@@ -1,0 +1,49 @@
+{
+  "policy_version": "scale-v1",
+  "description": "Operational process scale bands. These are dataset labels, not regulatory or clinical-development stages.",
+  "basis_priority": [
+    "product_mass",
+    "batch_mass",
+    "limiting_reagent_mass",
+    "input_mass"
+  ],
+  "mass_units_to_g": {
+    "ug": 0.000001,
+    "mg": 0.001,
+    "g": 1,
+    "kg": 1000
+  },
+  "bands": [
+    {
+      "label": "sub_gram",
+      "min_g_inclusive": 0,
+      "max_g_exclusive": 1
+    },
+    {
+      "label": "laboratory",
+      "min_g_inclusive": 1,
+      "max_g_exclusive": 100
+    },
+    {
+      "label": "kilo_lab",
+      "min_g_inclusive": 100,
+      "max_g_exclusive": 10000
+    },
+    {
+      "label": "pilot",
+      "min_g_inclusive": 10000,
+      "max_g_exclusive": 100000
+    },
+    {
+      "label": "manufacturing",
+      "min_g_inclusive": 100000,
+      "max_g_exclusive": null
+    }
+  ],
+  "unknown_label": "unknown",
+  "notes": [
+    "Keep the normalized continuous mass; bands are a versioned view.",
+    "Do not infer scale from vessel volume alone.",
+    "Do not infer clinical stage from batch scale or patent publication date."
+  ]
+}
