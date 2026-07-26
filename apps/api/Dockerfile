@@ -5,8 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/workspace
 
 WORKDIR /workspace
-COPY apps/api/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+COPY apps/api/requirements.txt requirements-pipeline.txt /tmp/
+RUN pip install --no-cache-dir -r /tmp/requirements.txt -r /tmp/requirements-pipeline.txt
 COPY . /workspace
 
 EXPOSE 8000

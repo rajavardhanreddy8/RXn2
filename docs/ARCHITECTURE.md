@@ -53,13 +53,15 @@ The current root-level `src/` is a zero-dependency bootstrap for `packages/domai
 
 ## Storage choices
 
-- **Raw:** original ZIP/XML/Parquet/JSON files on versioned object or local storage; content addressed by SHA-256.
+- **Raw:** original ZIP/XML/Parquet/JSON files under the Google Drive `RXN2/data/raw` root; content addressed by SHA-256.
+- **Local cache:** rebuildable staged inputs, capped at 250 GB while retaining at least 100 GB or 10% free disk space.
 - **Working analytics:** Parquet plus DuckDB for large SureChEMBL/USPTO joins.
 - **Curated transactional evidence:** SQLite for one researcher; PostgreSQL when concurrent reviewers are introduced.
 - **Training:** immutable Parquet/JSONL shards and a dataset manifest.
 - **Serving:** read-only SQLite/PostgreSQL plus local model artifacts.
 
 SQLite is implemented now because it is portable and testable without external services. Do not load full SureChEMBL into SQLite; filter/join its Parquet snapshots with DuckDB and insert only the candidate/curated slice.
+The pipeline fails closed when Drive is unavailable or the cache/free-space limits would be crossed. SQLite and DuckDB working databases must never be placed on Drive.
 
 ## Stable boundaries
 

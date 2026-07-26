@@ -22,7 +22,7 @@ The full machine-readable registry is [`configs/sources.json`](../configs/source
 
 ## Why SureChEMBL is the best starting point
 
-SureChEMBL publishes biweekly Parquet snapshots containing compounds, patents, patent–compound mappings, classifications, family IDs, and biomedical annotations. It is CC BY 4.0 and supports local analysis. As of the 2026-07-17 snapshot, its largest core files are several gigabytes each, so ingestion should be columnar and filtered before copying into the curated store.
+SureChEMBL publishes biweekly Parquet snapshots containing compounds, patents, patent–compound mappings, classifications, family IDs, and biomedical annotations. It is CC BY 4.0 and supports local analysis. The pinned 2026-07-21 snapshot has roughly 14 GB of required core files, so ingestion must remain columnar and filtered before copying candidates into the curated store.
 
 References:
 

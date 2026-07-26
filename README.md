@@ -34,21 +34,20 @@ Node 22.5+ is required because the CLI uses the built-in `node:sqlite` module. T
 node src/cli.js validate --input examples/curated_examples.jsonl
 node src/cli.js init-db --db data/curated/scaleup.sqlite
 node src/cli.js ingest --db data/curated/scaleup.sqlite --input examples/curated_examples.jsonl
-node src/cli.js register-artifact --db data/curated/scaleup.sqlite --source surechembl_bulk --release 2026-07-17 --file data/raw/surechembl_bulk/2026-07-17/patents.parquet
 node src/cli.js split --input examples/curated_examples.jsonl --output data/processed/splits.json --seed fixture-12 --db data/curated/scaleup.sqlite --dataset-version working-fixtures-v1
 node src/cli.js quality --db data/curated/scaleup.sqlite
 node --test
 ```
 
-Install the bulk-pipeline dependency and initialize the catalogue schema with:
+Copy `.env.example` to `.env`, confirm the Drive mount, then initialize the catalogue:
 
 ```powershell
-python -m pip install -r requirements-pipeline.txt
-python scripts/bulk_pipeline.py init
-python scripts/bulk_pipeline.py summary
+npm run storage:check
+npm run catalogue:init
+npm run catalogue:summary
 ```
 
-The global FDA, ChEMBL and SureChEMBL snapshots are not bundled. Follow the acquisition runbook and ingest pinned local files; the web application never downloads them at runtime.
+Google Drive is authoritative for raw snapshots. The pipeline stages only active inputs into the bounded local `data/cache` working set; SQLite remains local. The global FDA, ChEMBL and SureChEMBL snapshots are not bundled.
 
 The checked-in examples are explicitly synthetic. They validate the machinery only; they are never eligible to support scientific conclusions.
 
@@ -74,7 +73,9 @@ docker compose run --rm api pytest -q apps/api/tests
 
 `GROQ_API_KEY` is optional. When absent, `/api/extraction/qroq` returns a controlled disabled response and all core functions continue locally. When enabled, extracted facts enter `needs_review`; they never enter the accepted graph automatically.
 
-`register-artifact` does not download or rewrite a source file. It streams a SHA-256 over an operator-provided snapshot and records the release in the evidence database. Multi-gigabyte files are hashed in bounded memory.
+Catalogue ingestion does not download or rewrite source files. It verifies and
+stages operator-provided Drive snapshots, streams SHA-256 in bounded memory, and
+records release artifacts in the evidence database before parsing.
 
 ## Operating rule
 

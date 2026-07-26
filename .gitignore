@@ -13,6 +13,9 @@ __pycache__/
 # Raw snapshots are immutable local inputs, not source-control content.
 data/raw/**
 !data/raw/.gitkeep
+data/cache/**
+!data/cache/.gitkeep
+data/ocr/
 
 # Rebuildable database/export artifacts.
 data/curated/*.sqlite

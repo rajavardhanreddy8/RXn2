@@ -16,9 +16,27 @@ import re
 import sqlite3
 import sys
 import zipfile
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Iterable, Iterator
+
+try:
+    from scripts.hybrid_storage import (
+        DEFAULT_POLICY as DEFAULT_STORAGE_POLICY,
+        StoragePolicy,
+        is_relative_to,
+        stage_file,
+        stage_snapshot,
+    )
+except ModuleNotFoundError:
+    from hybrid_storage import (
+        DEFAULT_POLICY as DEFAULT_STORAGE_POLICY,
+        StoragePolicy,
+        is_relative_to,
+        stage_file,
+        stage_snapshot,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +44,20 @@ DEFAULT_DB = ROOT / "data" / "curated" / "scaleup.sqlite"
 DEFAULT_SCHEMA = ROOT / "sql" / "schema.sql"
 DEFAULT_SOURCES = ROOT / "configs" / "sources.json"
 SMALL_MOLECULE = "small_molecule"
+MATERIAL_FORMS = {
+    "active_moiety",
+    "salt",
+    "solvate",
+    "stereoisomer",
+    "salt_or_form",
+    "unknown",
+}
+SURECHEMBL_FILES = (
+    "compounds.parquet",
+    "patent_compound_map.parquet",
+    "patents.parquet",
+    "fields.parquet",
+)
 
 
 def now() -> str:
@@ -48,6 +80,19 @@ def clean(value: object | None) -> str | None:
 
 def json_text(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+
+@contextmanager
+def atomic(db: sqlite3.Connection, name: str):
+    db.execute(f"SAVEPOINT {name}")
+    try:
+        yield
+    except Exception:
+        db.execute(f"ROLLBACK TO {name}")
+        db.execute(f"RELEASE {name}")
+        raise
+    else:
+        db.execute(f"RELEASE {name}")
 
 
 def sha256_file(path: Path, chunk_size: int = 8 * 1024 * 1024) -> str:
@@ -115,15 +160,20 @@ def register_release(
     for path in files:
         absolute = path.resolve()
         relative = absolute.relative_to(ROOT).as_posix() if ROOT in absolute.parents else str(absolute)
+        size_bytes = absolute.stat().st_size
+        checksum = sha256_file(absolute)
         existing = db.execute(
-            """SELECT a.artifact_id, a.sha256 FROM artifact a
-               WHERE a.release_id = ? AND a.relative_path = ? AND a.size_bytes = ?""",
-            (release_id, relative, absolute.stat().st_size),
+            """SELECT a.artifact_id, a.sha256, a.size_bytes FROM artifact a
+               WHERE a.release_id = ? AND a.relative_path = ?""",
+            (release_id, relative),
         ).fetchone()
         if existing:
+            if existing["size_bytes"] != size_bytes or existing["sha256"] != checksum:
+                raise RuntimeError(
+                    f"immutable release artifact changed for {source_id}:{release}: {relative}"
+                )
             artifacts[path.name.casefold()] = existing["artifact_id"]
             continue
-        checksum = sha256_file(absolute)
         artifact_id = f"{release_id}:{checksum[:16]}"
         media_type = "application/vnd.apache.parquet" if absolute.suffix.casefold() == ".parquet" else "application/octet-stream"
         db.execute(
@@ -131,23 +181,32 @@ def register_release(
             (artifact_id, release_id, relative_path, sha256, size_bytes, media_type)
             VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(artifact_id) DO UPDATE SET relative_path=excluded.relative_path""",
-            (artifact_id, release_id, relative, checksum, absolute.stat().st_size, media_type),
+            (artifact_id, release_id, relative, checksum, size_bytes, media_type),
         )
         artifacts[path.name.casefold()] = artifact_id
     db.commit()
     return release_id, artifacts
 
 
+def named_drug_ids(db: sqlite3.Connection, preferred_name: str) -> set[str]:
+    normalized = normalize_name(preferred_name)
+    return {
+        row["drug_id"]
+        for row in db.execute(
+            "SELECT DISTINCT drug_id FROM drug_alias WHERE normalized_alias = ?",
+            (normalized,),
+        )
+    }
+
+
 def find_or_create_drug(db: sqlite3.Connection, preferred_name: str, source_id: str) -> str:
     normalized = normalize_name(preferred_name)
     if not normalized:
         raise ValueError("drug name cannot be empty")
-    row = db.execute(
-        """SELECT drug_id FROM drug_alias WHERE normalized_alias = ?
-           ORDER BY CASE alias_type WHEN 'preferred_name' THEN 0 ELSE 1 END, drug_id LIMIT 1""",
-        (normalized,),
-    ).fetchone()
-    drug_id = row["drug_id"] if row else stable_id("drug", normalized)
+    matches = named_drug_ids(db, preferred_name)
+    if len(matches) > 1:
+        raise ValueError("ambiguous name match requires manual reconciliation")
+    drug_id = next(iter(matches), stable_id("drug", normalized))
     db.execute(
         """INSERT INTO drug_entity (drug_id, preferred_name, modality, review_status)
            VALUES (?, ?, ?, 'unreviewed')
@@ -157,6 +216,87 @@ def find_or_create_drug(db: sqlite3.Connection, preferred_name: str, source_id: 
     )
     add_alias(db, drug_id, preferred_name, "preferred_name", source_id)
     return drug_id
+
+
+def matched_drug_id(
+    db: sqlite3.Connection,
+    inchi_key: str | None,
+    identifiers: dict[str, object],
+) -> str | None:
+    matches: set[str] = set()
+    if inchi_key:
+        matches.update(
+            row["drug_id"]
+            for row in db.execute(
+                """SELECT DISTINCT dc.drug_id
+                   FROM drug_compound dc JOIN compound c USING (compound_id)
+                   WHERE c.inchi_key = ?""",
+                (inchi_key,),
+            )
+        )
+    for namespace, raw_values in identifiers.items():
+        values = raw_values if isinstance(raw_values, list) else [raw_values]
+        for value in values:
+            identifier = clean(value)
+            if not identifier:
+                continue
+            matches.update(
+                row["drug_id"]
+                for row in db.execute(
+                    """SELECT drug_id FROM drug_identifier
+                       WHERE namespace = ? AND identifier_value = ?""",
+                    (namespace, identifier),
+                )
+            )
+    if len(matches) > 1:
+        raise ValueError(
+            "cross-source identity conflict: exact structure/identifier matches multiple drugs"
+        )
+    return next(iter(matches), None)
+
+
+def attach_or_create_drug(
+    db: sqlite3.Connection,
+    preferred_name: str,
+    source_id: str,
+    matched_id: str | None,
+) -> str:
+    if not matched_id:
+        return find_or_create_drug(db, preferred_name, source_id)
+    db.execute(
+        """UPDATE drug_entity
+           SET preferred_name = COALESCE(preferred_name, ?)
+           WHERE drug_id = ?""",
+        (preferred_name.strip(), matched_id),
+    )
+    add_alias(db, matched_id, preferred_name, "preferred_name", source_id)
+    return matched_id
+
+
+def require_compatible_name_match(
+    db: sqlite3.Connection,
+    preferred_name: str,
+    inchi_key: str | None,
+    matched_id: str | None,
+) -> None:
+    """Reject name-only merges when the catalogue already has another exact structure."""
+    if matched_id or not inchi_key:
+        return
+    existing_keys = {
+        row["inchi_key"]
+        for row in db.execute(
+            """SELECT DISTINCT c.inchi_key
+               FROM drug_alias da
+               JOIN drug_compound dc USING (drug_id)
+               JOIN compound c USING (compound_id)
+               WHERE da.normalized_alias = ? AND c.inchi_key IS NOT NULL""",
+            (normalize_name(preferred_name),),
+        )
+    }
+    if existing_keys and inchi_key not in existing_keys:
+        raise ValueError(
+            "name-only match conflicts with an existing exact structure; manual reconciliation required"
+        )
 
 
 def add_alias(db: sqlite3.Connection, drug_id: str, alias: str | None, alias_type: str, source_id: str) -> None:
@@ -255,13 +395,25 @@ def ingest_fda_products(
     return counts
 
 
-def ingest_fda(db: sqlite3.Connection, drugs_fda: Path | None, orange_book: Path | None, release: str) -> dict:
+def ingest_fda(
+    db: sqlite3.Connection,
+    drugs_fda: Path | None,
+    orange_book: Path | None,
+    release: str,
+    artifact_drugs_fda: Path | None = None,
+    artifact_orange_book: Path | None = None,
+) -> dict:
     results: dict[str, object] = {"release": release}
     if drugs_fda:
-        register_release(db, "drugs_at_fda", release, [drugs_fda], "fda-products-v1")
+        register_release(
+            db, "drugs_at_fda", release, [artifact_drugs_fda or drugs_fda], "fda-products-v1"
+        )
         results["drugs_at_fda"] = ingest_fda_products(db, drugs_fda, "drugs_at_fda", "\t")
     if orange_book:
-        register_release(db, "fda_orange_book", release, [orange_book], "orange-book-products-v1")
+        register_release(
+            db, "fda_orange_book", release, [artifact_orange_book or orange_book],
+            "orange-book-products-v1",
+        )
         results["orange_book"] = ingest_fda_products(db, orange_book, "fda_orange_book", "~")
     return results
 
@@ -270,8 +422,15 @@ def chembl_columns(db: sqlite3.Connection, table: str) -> set[str]:
     return {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
 
 
-def ingest_chembl(db: sqlite3.Connection, chembl_path: Path, release: str) -> dict[str, int]:
-    register_release(db, "chembl_snapshot", release, [chembl_path], "chembl-sqlite-v1")
+def ingest_chembl(
+    db: sqlite3.Connection,
+    chembl_path: Path,
+    release: str,
+    artifact_path: Path | None = None,
+) -> dict[str, int]:
+    register_release(
+        db, "chembl_snapshot", release, [artifact_path or chembl_path], "chembl-sqlite-v1"
+    )
     source = sqlite3.connect(f"file:{chembl_path.resolve().as_posix()}?mode=ro", uri=True)
     source.row_factory = sqlite3.Row
     required = {"molecule_dictionary", "compound_structures", "molecule_hierarchy", "molecule_synonyms"}
@@ -363,8 +522,16 @@ def ingest_catalogue_jsonl(
 ) -> dict[str, int]:
     """Ingest normalized records prepared from PubChem, UniChem, EMA, or another registry."""
     register_release(db, source_id, release, [input_path], "catalogue-jsonl-v1")
-    counts = {"drugs": 0, "compounds": 0, "aliases": 0, "identifiers": 0}
-    with input_path.open(encoding="utf-8") as handle:
+    counts = {
+        "drugs": 0,
+        "compounds": 0,
+        "aliases": 0,
+        "identifiers": 0,
+        "regulatory_products": 0,
+        "unmatched_existing_drugs": 0,
+        "ambiguous_existing_drugs": 0,
+    }
+    with atomic(db, "catalogue_jsonl"), input_path.open(encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, 1):
             if not line.strip():
                 continue
@@ -375,7 +542,28 @@ def ingest_catalogue_jsonl(
             preferred_name = clean(record.get("preferred_name"))
             if not preferred_name:
                 raise ValueError(f"line {line_number}: preferred_name is required")
-            drug_id = find_or_create_drug(db, preferred_name, source_id)
+            identifiers = record.get("identifiers", {})
+            if not isinstance(identifiers, dict):
+                raise ValueError(f"line {line_number}: identifiers must be an object")
+            compound = record.get("compound")
+            inchi_key = clean(compound.get("inchi_key")) if isinstance(compound, dict) else None
+            if inchi_key and len(inchi_key) != 27:
+                raise ValueError(f"line {line_number}: inchi_key must contain 27 characters")
+            matched_id = matched_drug_id(db, inchi_key, identifiers)
+            require_compatible_name_match(db, preferred_name, inchi_key, matched_id)
+            requires_existing = record.get("requires_existing_drug", False)
+            if not isinstance(requires_existing, bool):
+                raise ValueError(f"line {line_number}: requires_existing_drug must be boolean")
+            if requires_existing and not matched_id:
+                name_matches = named_drug_ids(db, preferred_name)
+                if not name_matches:
+                    counts["unmatched_existing_drugs"] += 1
+                    continue
+                if len(name_matches) > 1:
+                    counts["ambiguous_existing_drugs"] += 1
+                    continue
+                matched_id = next(iter(name_matches))
+            drug_id = attach_or_create_drug(db, preferred_name, source_id, matched_id)
             counts["drugs"] += 1
             for alias in record.get("aliases", []):
                 if isinstance(alias, str):
@@ -383,15 +571,16 @@ def ingest_catalogue_jsonl(
                 else:
                     add_alias(db, drug_id, alias.get("value"), alias.get("type", "synonym"), source_id)
                 counts["aliases"] += 1
-            for namespace, values in record.get("identifiers", {}).items():
+            for namespace, values in identifiers.items():
                 for value in values if isinstance(values, list) else [values]:
                     add_identifier(db, drug_id, namespace, value, source_id)
                     counts["identifiers"] += 1
-            compound = record.get("compound")
             if compound:
-                inchi_key = clean(compound.get("inchi_key"))
-                if inchi_key and len(inchi_key) != 27:
-                    raise ValueError(f"line {line_number}: inchi_key must contain 27 characters")
+                material_form = clean(compound.get("material_form")) or "active_moiety"
+                if material_form not in MATERIAL_FORMS:
+                    raise ValueError(
+                        f"line {line_number}: unsupported material_form {material_form!r}"
+                    )
                 compound_id = clean(compound.get("compound_id")) or stable_id(
                     "compound", inchi_key or compound.get("smiles") or preferred_name
                 )
@@ -418,7 +607,7 @@ def ingest_catalogue_jsonl(
                     (
                         compound_id, preferred_name, clean(compound.get("smiles")),
                         clean(compound.get("inchi")), inchi_key, inchi_key[:14] if inchi_key else None,
-                        active_moiety_id, clean(compound.get("material_form")) or "active_moiety", source_id,
+                        active_moiety_id, material_form, source_id,
                     ),
                 )
                 db.execute(
@@ -428,15 +617,53 @@ def ingest_catalogue_jsonl(
                     (drug_id, compound_id, clean(compound.get("relationship_type")) or "active_moiety"),
                 )
                 counts["compounds"] += 1
-            if line_number % 5_000 == 0:
-                db.commit()
+            for product in record.get("regulatory_products", []):
+                if not isinstance(product, dict):
+                    raise ValueError(
+                        f"line {line_number}: regulatory_products entries must be objects"
+                    )
+                jurisdiction = clean(product.get("jurisdiction"))
+                application = clean(product.get("application_number"))
+                product_number = clean(product.get("product_number"))
+                if not jurisdiction or not (application or product_number):
+                    raise ValueError(
+                        f"line {line_number}: regulatory product requires jurisdiction "
+                        "and application_number or product_number"
+                    )
+                product_id = clean(product.get("regulatory_product_id")) or stable_id(
+                    "regulatory-product", jurisdiction, application, product_number
+                )
+                db.execute(
+                    """INSERT INTO regulatory_product
+                    (regulatory_product_id, jurisdiction, application_number, product_number,
+                     trade_name, dosage_form, route, strength, approval_date, applicant,
+                     source_id, raw_record_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(regulatory_product_id) DO UPDATE SET
+                      trade_name=COALESCE(excluded.trade_name, regulatory_product.trade_name),
+                      approval_date=COALESCE(excluded.approval_date, regulatory_product.approval_date),
+                      raw_record_json=excluded.raw_record_json""",
+                    (
+                        product_id, jurisdiction, application, product_number,
+                        clean(product.get("trade_name")), clean(product.get("dosage_form")),
+                        clean(product.get("route")), clean(product.get("strength")),
+                        clean(product.get("approval_date")), clean(product.get("applicant")),
+                        source_id, json_text(product),
+                    ),
+                )
+                db.execute(
+                    """INSERT OR IGNORE INTO regulatory_product_drug
+                    (regulatory_product_id, drug_id, relationship_type)
+                    VALUES (?, ?, 'active_ingredient')""",
+                    (product_id, drug_id),
+                )
+                counts["regulatory_products"] += 1
     db.commit()
     return counts
 
 
 def require_snapshot_files(snapshot: Path) -> dict[str, Path]:
-    names = ("compounds.parquet", "patent_compound_map.parquet", "patents.parquet", "fields.parquet")
-    files = {name: snapshot / name for name in names}
+    files = {name: snapshot / name for name in SURECHEMBL_FILES}
     missing = [name for name, path in files.items() if not path.is_file()]
     if missing:
         raise ValueError(f"SureChEMBL snapshot is missing: {', '.join(missing)}")
@@ -452,14 +679,16 @@ def ingest_surechembl(
     snapshot: Path,
     release: str,
     batch_size: int = 25_000,
+    artifact_snapshot: Path | None = None,
 ) -> dict[str, int]:
     try:
         import duckdb
     except ImportError as error:
         raise RuntimeError("SureChEMBL ingestion requires: python -m pip install duckdb") from error
     files = require_snapshot_files(snapshot)
+    artifact_files = require_snapshot_files(artifact_snapshot or snapshot)
     release_id, artifacts = register_release(
-        db, "surechembl_bulk", release, files.values(), "surechembl-parquet-v1"
+        db, "surechembl_bulk", release, artifact_files.values(), "surechembl-parquet-v1"
     )
     seeds = db.execute(
         """SELECT dc.drug_id, c.compound_id, c.inchi_key, c.connectivity_key
@@ -688,6 +917,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--db", type=Path, default=DEFAULT_DB)
     result.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
     result.add_argument("--sources", type=Path, default=DEFAULT_SOURCES)
+    result.add_argument("--storage-policy", type=Path, default=DEFAULT_STORAGE_POLICY)
     commands = result.add_subparsers(dest="command", required=True)
     commands.add_parser("init")
     fda = commands.add_parser("ingest-fda")
@@ -712,7 +942,12 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    db = connect(args.db.resolve(), args.schema.resolve())
+    policy = StoragePolicy.load(args.storage_policy.resolve())
+    resolved_db = args.db.resolve()
+    if is_relative_to(resolved_db, policy.raw_root.resolve()):
+        print("ERROR: curated SQLite database must not live in the Drive raw store", file=sys.stderr)
+        return 1
+    db = connect(resolved_db, args.schema.resolve())
     try:
         register_sources(db, args.sources.resolve())
         if args.command == "init":
@@ -720,10 +955,22 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "ingest-fda":
             if not args.drugs_fda and not args.orange_book:
                 raise ValueError("provide --drugs-fda and/or --orange-book")
-            result = ingest_fda(db, args.drugs_fda, args.orange_book, args.release)
+            original_drugs_fda = args.drugs_fda.resolve() if args.drugs_fda else None
+            original_orange_book = args.orange_book.resolve() if args.orange_book else None
+            staged_drugs_fda = stage_file(original_drugs_fda, policy) if original_drugs_fda else None
+            staged_orange_book = (
+                stage_file(original_orange_book, policy) if original_orange_book else None
+            )
+            result = ingest_fda(
+                db, staged_drugs_fda, staged_orange_book, args.release,
+                original_drugs_fda, original_orange_book,
+            )
             result["coverage"] = refresh_coverage(db)
         elif args.command == "ingest-chembl":
-            result = ingest_chembl(db, args.chembl_sqlite, args.release)
+            original_chembl = args.chembl_sqlite.resolve()
+            result = ingest_chembl(
+                db, stage_file(original_chembl, policy), args.release, original_chembl
+            )
             result["coverage"] = refresh_coverage(db)
         elif args.command == "ingest-catalogue-jsonl":
             registry = json.loads(args.sources.resolve().read_text(encoding="utf-8"))
@@ -733,7 +980,13 @@ def main(argv: list[str] | None = None) -> int:
             result = ingest_catalogue_jsonl(db, args.input, args.source, args.release)
             result["coverage"] = refresh_coverage(db)
         elif args.command == "ingest-surechembl":
-            result = ingest_surechembl(db, args.snapshot, args.release, args.batch_size)
+            original_snapshot = args.snapshot.resolve()
+            staged_snapshot = stage_snapshot(
+                original_snapshot, SURECHEMBL_FILES, policy
+            )
+            result = ingest_surechembl(
+                db, staged_snapshot, args.release, args.batch_size, original_snapshot
+            )
             result["coverage"] = refresh_coverage(db)
         elif args.command == "refresh-coverage":
             result = {"coverage": refresh_coverage(db)}
