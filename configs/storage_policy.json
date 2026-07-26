@@ -2,7 +2,7 @@
   "policy_version": "cloud-first-v2",
   "raw_root": "I:\\My Drive\\RXN2\\data\\raw",
   "cache_root": "data/cache",
-  "curated_db": "data/curated/scaleup.sqlite",
+  "curated_db": "data/curated/rxn2-production.sqlite",
   "cloud_only": true,
   "stream_max_bytes": 536870912,
   "cache_max_bytes": 5368709120,

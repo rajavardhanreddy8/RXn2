@@ -93,6 +93,8 @@ export type DrugCoverage = {
   reviewed_route_count: number
   priced_route_count: number
   compound_count: number
+  product_count: number
+  marketing_statuses: string[]
   refreshed_at: string
 }
 

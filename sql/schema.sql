@@ -34,6 +34,24 @@ CREATE TABLE IF NOT EXISTS artifact (
   UNIQUE (release_id, sha256)
 );
 
+CREATE TABLE IF NOT EXISTS ingestion_run (
+  ingestion_run_id TEXT PRIMARY KEY,
+  release_id TEXT NOT NULL REFERENCES source_release(release_id),
+  source_id TEXT NOT NULL REFERENCES source(source_id),
+  parser_version TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  completed_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('succeeded', 'failed')),
+  input_rows INTEGER NOT NULL CHECK (input_rows >= 0),
+  accepted_rows INTEGER NOT NULL CHECK (accepted_rows >= 0),
+  excluded_rows INTEGER NOT NULL CHECK (excluded_rows >= 0),
+  rejected_rows INTEGER NOT NULL CHECK (rejected_rows >= 0),
+  reason_counts_json TEXT NOT NULL,
+  details_json TEXT NOT NULL,
+  CHECK (input_rows = accepted_rows + excluded_rows + rejected_rows),
+  UNIQUE (release_id, parser_version)
+);
+
 CREATE TABLE IF NOT EXISTS patent_family (
   family_id TEXT PRIMARY KEY,
   family_type TEXT NOT NULL DEFAULT 'source_reported',
@@ -135,6 +153,7 @@ CREATE TABLE IF NOT EXISTS regulatory_product (
   route TEXT,
   strength TEXT,
   approval_date TEXT,
+  marketing_status TEXT NOT NULL DEFAULT 'unknown',
   applicant TEXT,
   source_id TEXT NOT NULL REFERENCES source(source_id),
   raw_record_json TEXT NOT NULL
@@ -146,6 +165,8 @@ CREATE TABLE IF NOT EXISTS regulatory_product_drug (
   relationship_type TEXT NOT NULL DEFAULT 'active_ingredient',
   PRIMARY KEY (regulatory_product_id, drug_id, relationship_type)
 );
+CREATE INDEX IF NOT EXISTS idx_regulatory_product_drug
+  ON regulatory_product_drug(drug_id, regulatory_product_id);
 
 CREATE TABLE IF NOT EXISTS evidence_span (
   evidence_span_id TEXT PRIMARY KEY,
@@ -382,6 +403,8 @@ CREATE INDEX IF NOT EXISTS idx_compound_active_moiety ON compound(active_moiety_
 CREATE INDEX IF NOT EXISTS idx_drug_alias_normalized ON drug_alias(normalized_alias);
 CREATE INDEX IF NOT EXISTS idx_drug_identifier_value ON drug_identifier(namespace, identifier_value);
 CREATE INDEX IF NOT EXISTS idx_regulatory_product_application ON regulatory_product(jurisdiction, application_number, product_number);
+CREATE INDEX IF NOT EXISTS idx_regulatory_product_status ON regulatory_product(marketing_status, jurisdiction);
+CREATE INDEX IF NOT EXISTS idx_ingestion_run_release ON ingestion_run(release_id, status);
 CREATE INDEX IF NOT EXISTS idx_patent_candidate_drug ON patent_candidate(drug_id, publication_number);
 CREATE INDEX IF NOT EXISTS idx_patent_candidate_compound ON patent_candidate(compound_id, publication_number);
 CREATE INDEX IF NOT EXISTS idx_drug_coverage_status ON drug_coverage(status, drug_id);

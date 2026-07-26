@@ -21,6 +21,24 @@ def local_database(tmp_path, monkeypatch):
     return path
 
 
+def test_production_startup_does_not_seed_demo_data(tmp_path, monkeypatch):
+    path = tmp_path / "production.sqlite"
+    monkeypatch.setattr(db, "DB_PATH", path)
+    monkeypatch.delenv("RXN2_SEED_DEMO", raising=False)
+    with TestClient(app) as client:
+        health = client.get("/api/health")
+        assert health.status_code == 200
+        assert health.json()["counts"]["reactions"] == 0
+        assert health.json()["counts"]["drugs"] == 0
+    connection = sqlite3.connect(path)
+    try:
+        assert connection.execute(
+            "SELECT count(*) FROM source WHERE source_id='mvp_demo'"
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
 def test_demo_graph_generates_two_deterministic_routes(local_database):
     target = resolve_compound("Demo benzamide target")
     assert target and target["compound_id"] == "DEMO-TARGET-1"
@@ -59,6 +77,8 @@ def test_http_mvp_and_honest_benchmark_gap(local_database):
         assert coverage.status_code == 200
         assert coverage.json()["total"] == 6
         assert all(item["status"] == "identified" for item in coverage.json()["items"])
+        assert all(item["product_count"] == 0 for item in coverage.json()["items"])
+        assert client.get("/api/catalogue/releases").json() == {"total": 0, "items": []}
 
         resolved = client.post("/api/targets/resolve", json={"query": "Demo benzamide target"})
         assert resolved.status_code == 200

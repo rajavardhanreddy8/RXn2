@@ -8,11 +8,11 @@
     "node": ">=22.5"
   },
   "scripts": {
-    "db:init": "node src/cli.js init-db --db data/curated/scaleup.sqlite",
+    "db:init": "node src/cli.js init-db --db data/curated/rxn2-production.sqlite",
     "data:validate": "node src/cli.js validate --input examples/curated_examples.jsonl",
-    "data:ingest": "node src/cli.js ingest --db data/curated/scaleup.sqlite --input examples/curated_examples.jsonl",
-    "data:split": "node src/cli.js split --input examples/curated_examples.jsonl --output data/processed/splits.json --seed fixture-12 --db data/curated/scaleup.sqlite --dataset-version working-fixtures-v1",
-    "data:quality": "node src/cli.js quality --db data/curated/scaleup.sqlite",
+    "data:ingest": "node src/cli.js ingest --db data/curated/rxn2-demo.sqlite --input examples/curated_examples.jsonl",
+    "data:split": "node src/cli.js split --input examples/curated_examples.jsonl --output data/processed/splits.json --seed fixture-12 --db data/curated/rxn2-demo.sqlite --dataset-version working-fixtures-v1",
+    "data:quality": "node src/cli.js quality --db data/curated/rxn2-demo.sqlite",
     "storage:check": "docker compose run --rm api python scripts/hybrid_storage.py check",
     "catalogue:init": "docker compose run --rm api python scripts/bulk_pipeline.py init",
     "catalogue:coverage": "docker compose run --rm api python scripts/bulk_pipeline.py refresh-coverage",

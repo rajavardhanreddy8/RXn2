@@ -31,8 +31,19 @@ def make_fda_zip(path: Path) -> None:
         "ApplNo\tProductNo\tForm\tStrength\tDrugName\tActiveIngredient\n"
         "019872\t001\tTABLET;ORAL\t500MG\tTYLENOL\tACETAMINOPHEN\n"
     )
+    marketing_status = (
+        "ApplNo\tProductNo\tMarketingStatusID\n"
+        "019872\t001\t1\n"
+    )
+    lookup = (
+        "MarketingStatusID\tMarketingStatusDescription\n"
+        "1\tPrescription\n"
+        "3\tDiscontinued\n"
+    )
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("Products.txt", content)
+        archive.writestr("MarketingStatus.txt", marketing_status)
+        archive.writestr("MarketingStatus_Lookup.txt", lookup)
 
 
 def make_chembl(path: Path) -> None:
@@ -101,8 +112,12 @@ def test_catalogue_and_surechembl_pipeline(tmp_path):
     chembl = tmp_path / "chembl.sqlite"
     make_chembl(chembl)
     assert ingest_chembl(db, chembl, "CHEMBL37")["compounds"] == 1
-    assert db.execute("SELECT count(*) FROM drug_entity").fetchone()[0] == 1
+    assert db.execute("SELECT count(*) FROM drug_entity").fetchone()[0] == 2
+    assert db.execute("SELECT count(*) FROM link_candidate").fetchone()[0] == 1
     assert db.execute("SELECT count(*) FROM drug_alias").fetchone()[0] >= 3
+    assert db.execute(
+        "SELECT marketing_status FROM regulatory_product"
+    ).fetchone()[0] == "active"
 
     surechembl = tmp_path / "surechembl"
     make_surechembl(surechembl)
@@ -113,8 +128,10 @@ def test_catalogue_and_surechembl_pipeline(tmp_path):
     assert db.execute("SELECT count(*) FROM patent_candidate").fetchone()[0] == 1
 
     statuses = refresh_coverage(db)
-    assert statuses == {"patents_found": 1}
-    coverage = db.execute("SELECT * FROM drug_coverage").fetchone()
+    assert statuses == {"identified": 1, "patents_found": 1}
+    coverage = db.execute(
+        "SELECT * FROM drug_coverage WHERE patent_count = 1"
+    ).fetchone()
     assert coverage["patent_count"] == 1
     assert coverage["patents_found"] == 1
     assert coverage["complete_reviewed_route"] == 0
@@ -146,7 +163,7 @@ def test_catalogue_and_surechembl_pipeline(tmp_path):
     assert db.execute(
         "SELECT count(*) FROM extraction_job WHERE review_status='unreviewed'"
     ).fetchone()[0] == 1
-    assert refresh_coverage(db) == {"patents_found": 1}
+    assert refresh_coverage(db) == {"identified": 1, "patents_found": 1}
 
     cloud_output = tmp_path / "ocr" / "job-cloud"
     cloud_output.mkdir()
@@ -257,8 +274,11 @@ def test_ema_json_enriches_only_an_existing_small_molecule(tmp_path):
     make_chembl(chembl)
     ingest_chembl(db, chembl, "CHEMBL37")
     enriched = ingest_catalogue_jsonl(db, output, "ema_medicines", "2026-07-24")
-    assert enriched["regulatory_products"] == 1
-    assert enriched["unmatched_existing_drugs"] == 0
+    assert enriched["regulatory_products"] == 0
+    assert enriched["unmatched_existing_drugs"] == 1
+    assert db.execute(
+        "SELECT count(*) FROM link_candidate WHERE subject_type='source_record'"
+    ).fetchone()[0] == 1
     assert db.execute("SELECT count(*) FROM drug_entity").fetchone()[0] == 1
     db.close()
 
@@ -321,7 +341,56 @@ def test_malformed_catalogue_release_rolls_back_records(tmp_path):
     assert db.execute("SELECT count(*) FROM drug_entity").fetchone()[0] == 0
     assert db.execute(
         "SELECT count(*) FROM source_release WHERE release_id='pubchem_bulk:malformed-1'"
-    ).fetchone()[0] == 1
+    ).fetchone()[0] == 0
+    assert db.execute("SELECT count(*) FROM ingestion_run").fetchone()[0] == 0
+    db.close()
+
+
+def test_fda_accounting_and_discontinued_status_are_first_class(tmp_path):
+    source = tmp_path / "orange.zip"
+    content = (
+        "Appl_No~Product_No~DF;Route~Strength~Trade_Name~Ingredient~Type\n"
+        "123456~001~TABLET;ORAL~10MG~ACTIVE BRAND~ACTIVE DRUG~RX\n"
+        "123456~002~TABLET;ORAL~20MG~OLD BRAND~OLD DRUG~DISCN\n"
+        "~~~~~~\n"
+    )
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("products.txt", content)
+    db = connect(tmp_path / "catalogue.sqlite", ROOT / "sql" / "schema.sql")
+    register_sources(db, ROOT / "configs" / "sources.json")
+    result = ingest_fda(db, None, source, "2026-07")
+    counts = result["orange_book"]
+    assert counts["input_rows"] == 3
+    assert counts["accepted_rows"] == 2
+    assert counts["rejected_rows"] == 1
+    assert counts["reason_counts"]["missing_application_number_and_product_number_and_active_ingredient"] == 1
+    statuses = {
+        row[0] for row in db.execute(
+            "SELECT DISTINCT marketing_status FROM regulatory_product"
+        )
+    }
+    assert statuses == {"active", "discontinued"}
+    run = db.execute("SELECT * FROM ingestion_run").fetchone()
+    assert run["input_rows"] == 3
+    assert run["accepted_rows"] == 2
+    assert run["rejected_rows"] == 1
+    db.close()
+
+
+def test_malformed_fda_release_is_atomic(tmp_path):
+    source = tmp_path / "broken.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr(
+            "Products.txt",
+            "ApplNo\tProductNo\tActiveIngredient\n\t\t\n",
+        )
+    db = connect(tmp_path / "catalogue.sqlite", ROOT / "sql" / "schema.sql")
+    register_sources(db, ROOT / "configs" / "sources.json")
+    with pytest.raises(ValueError, match="no valid FDA product rows"):
+        ingest_fda(db, source, None, "broken")
+    assert db.execute("SELECT count(*) FROM regulatory_product").fetchone()[0] == 0
+    assert db.execute("SELECT count(*) FROM source_release").fetchone()[0] == 0
+    assert db.execute("SELECT count(*) FROM artifact").fetchone()[0] == 0
     db.close()
 
 

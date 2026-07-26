@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -23,10 +24,17 @@ from .routes import compound_by_id, generate_routes, resolve_compound
 from .seed import seed_demo
 
 
+def demo_seed_enabled() -> bool:
+    return os.getenv("RXN2_SEED_DEMO", "").strip().casefold() in {
+        "1", "true", "yes", "on"
+    }
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize()
-    seed_demo()
+    if demo_seed_enabled():
+        seed_demo()
     yield
 
 
@@ -101,11 +109,19 @@ def catalogue_coverage(
                        cv.public_evidence_unavailable, cv.patent_count,
                        cv.extracted_example_count, cv.reviewed_route_count,
                        cv.priced_route_count, cv.refreshed_at, cv.details_json,
-                       count(DISTINCT dc.compound_id) compound_count
+                       (SELECT count(*) FROM drug_compound dc
+                        WHERE dc.drug_id = d.drug_id) compound_count,
+                       (SELECT count(*) FROM regulatory_product_drug rpd
+                        WHERE rpd.drug_id = d.drug_id) product_count,
+                       (SELECT group_concat(marketing_status) FROM (
+                          SELECT DISTINCT rp.marketing_status
+                          FROM regulatory_product_drug rpd
+                          JOIN regulatory_product rp USING (regulatory_product_id)
+                          WHERE rpd.drug_id = d.drug_id
+                          ORDER BY rp.marketing_status
+                       )) marketing_statuses
                 FROM drug_entity d JOIN drug_coverage cv USING (drug_id)
-                LEFT JOIN drug_compound dc USING (drug_id)
                 {where_sql}
-                GROUP BY d.drug_id
                 ORDER BY d.preferred_name, d.drug_id LIMIT ? OFFSET ?""",
             [*parameters, limit, offset],
         ).fetchall()
@@ -124,6 +140,9 @@ def catalogue_coverage(
     for row in rows:
         item = dict(row)
         item["details"] = json.loads(item.pop("details_json"))
+        item["marketing_statuses"] = sorted(
+            value for value in (item["marketing_statuses"] or "").split(",") if value
+        )
         for flag in COVERAGE_STATUSES:
             item[flag] = bool(item[flag])
         items.append(item)
@@ -165,10 +184,51 @@ def catalogue_drug(drug_id: str) -> dict:
                WHERE pc.drug_id = ? ORDER BY p.publication_date DESC, pc.publication_number LIMIT 100""",
             (drug_id,),
         )]
+        products = [dict(row) for row in db.execute(
+            """SELECT rp.regulatory_product_id, rp.jurisdiction,
+                      rp.application_number, rp.product_number, rp.trade_name,
+                      rp.dosage_form, rp.route, rp.strength, rp.approval_date,
+                      rp.marketing_status, rp.applicant, rp.source_id
+               FROM regulatory_product_drug rpd
+               JOIN regulatory_product rp USING (regulatory_product_id)
+               WHERE rpd.drug_id = ?
+               ORDER BY rp.marketing_status, rp.trade_name,
+                        rp.application_number, rp.product_number
+               LIMIT 500""",
+            (drug_id,),
+        )]
     result = dict(drug)
     result["coverage_details"] = json.loads(result["coverage_details"] or "{}")
-    result.update({"aliases": aliases, "identifiers": identifiers, "compounds": compounds, "patent_candidates": patents})
+    result.update({
+        "aliases": aliases,
+        "identifiers": identifiers,
+        "compounds": compounds,
+        "regulatory_products": products,
+        "patent_candidates": patents,
+    })
     return result
+
+
+@app.get("/api/catalogue/releases")
+def catalogue_releases() -> dict:
+    with connect() as db:
+        rows = [dict(row) for row in db.execute(
+            """SELECT ir.ingestion_run_id, ir.release_id, ir.source_id,
+                      ir.parser_version, ir.started_at, ir.completed_at, ir.status,
+                      ir.input_rows, ir.accepted_rows, ir.excluded_rows,
+                      ir.rejected_rows, ir.reason_counts_json,
+                      sr.released_on,
+                      (SELECT count(*) FROM artifact a
+                       WHERE a.release_id = ir.release_id) artifact_count,
+                      (SELECT COALESCE(sum(a.size_bytes), 0) FROM artifact a
+                       WHERE a.release_id = ir.release_id) artifact_bytes
+               FROM ingestion_run ir
+               JOIN source_release sr USING (release_id)
+               ORDER BY ir.completed_at DESC"""
+        )]
+    for row in rows:
+        row["reason_counts"] = json.loads(row.pop("reason_counts_json"))
+    return {"total": len(rows), "items": rows}
 
 
 @app.post("/api/targets/resolve")

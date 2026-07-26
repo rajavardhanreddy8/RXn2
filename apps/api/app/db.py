@@ -8,7 +8,12 @@ from typing import Iterator
 
 
 ROOT = Path(__file__).resolve().parents[3]
-DB_PATH = Path(os.getenv("SCALEUP_DB_PATH", ROOT / "data" / "curated" / "scaleup.sqlite"))
+DB_PATH = Path(
+    os.getenv(
+        "SCALEUP_DB_PATH",
+        ROOT / "data" / "curated" / "rxn2-production.sqlite",
+    )
+)
 SCHEMA_PATH = ROOT / "sql" / "schema.sql"
 
 
@@ -23,6 +28,22 @@ def connect() -> sqlite3.Connection:
 def initialize() -> None:
     with connect() as connection:
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(regulatory_product)")
+        }
+        if "marketing_status" not in columns:
+            connection.execute(
+                "ALTER TABLE regulatory_product "
+                "ADD COLUMN marketing_status TEXT NOT NULL DEFAULT 'unknown'"
+            )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_regulatory_product_status "
+            "ON regulatory_product(marketing_status, jurisdiction)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_regulatory_product_drug "
+            "ON regulatory_product_drug(drug_id, regulatory_product_id)"
+        )
 
 
 @contextmanager

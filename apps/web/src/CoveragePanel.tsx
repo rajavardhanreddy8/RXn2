@@ -70,7 +70,11 @@ export default function CoveragePanel() {
           <span>Drug</span><span>Status</span><span>Patents</span><span>Examples</span><span>Routes</span><span>Priced</span>
         </div>
         {data.items.map((drug) => <div className="coverage-row" role="row" key={drug.drug_id}>
-          <span><b>{drug.preferred_name}</b><small>{drug.compound_count} structure form{drug.compound_count === 1 ? '' : 's'}</small></span>
+          <span><b>{drug.preferred_name}</b><small>
+            {drug.product_count} regulatory product{drug.product_count === 1 ? '' : 's'}
+            {drug.marketing_statuses.length ? ` · ${drug.marketing_statuses.join(', ')}` : ''}
+            {` · ${drug.compound_count} structure form${drug.compound_count === 1 ? '' : 's'}`}
+          </small></span>
           <span><i className={`status-dot ${drug.status}`} />{labels[drug.status]}</span>
           <span>{drug.patent_count}</span>
           <span>{drug.extracted_example_count}</span>

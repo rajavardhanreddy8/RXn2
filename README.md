@@ -32,10 +32,10 @@ Node 22.5+ is required because the CLI uses the built-in `node:sqlite` module. T
 
 ```powershell
 node src/cli.js validate --input examples/curated_examples.jsonl
-node src/cli.js init-db --db data/curated/scaleup.sqlite
-node src/cli.js ingest --db data/curated/scaleup.sqlite --input examples/curated_examples.jsonl
-node src/cli.js split --input examples/curated_examples.jsonl --output data/processed/splits.json --seed fixture-12 --db data/curated/scaleup.sqlite --dataset-version working-fixtures-v1
-node src/cli.js quality --db data/curated/scaleup.sqlite
+node src/cli.js init-db --db data/curated/rxn2-production.sqlite
+node src/cli.js ingest --db data/curated/rxn2-demo.sqlite --input examples/curated_examples.jsonl
+node src/cli.js split --input examples/curated_examples.jsonl --output data/processed/splits.json --seed fixture-12 --db data/curated/rxn2-demo.sqlite --dataset-version working-fixtures-v1
+node src/cli.js quality --db data/curated/rxn2-production.sqlite
 node --test
 ```
 
@@ -64,7 +64,11 @@ docker compose up --build
 
 Open `http://localhost:5173`. The API and generated OpenAPI documentation are at `http://localhost:8000/docs`.
 
-The bundled **Demo benzamide target** has two explicitly synthetic routes and local quote fixtures so the search, comparison, and cost UI can be exercised without external services. The five named benchmark compounds resolve locally but truthfully return a coverage gap until reviewed patent reaction evidence has been acquired. No demo record supports a scientific or cost-reduction claim.
+Production uses `data/curated/rxn2-production.sqlite` and never seeds synthetic
+records. The preserved `data/curated/rxn2-demo.sqlite` contains the bundled
+**Demo benzamide target** and five benchmark compounds; select that database
+and set `RXN2_SEED_DEMO=true` only for explicit demo/test runs. No demo record
+supports a scientific or cost-reduction claim.
 
 Run verification with:
 

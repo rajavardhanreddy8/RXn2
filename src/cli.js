@@ -279,6 +279,11 @@ function commandManifest(options) {
     manifest_version: '1.0.0',
     created_at: new Date().toISOString(),
     root,
+    ...(options.source ? { source_id: options.source } : {}),
+    ...(options.release ? { release_id: options.release } : {}),
+    ...(options.released_on ? { released_on: options.released_on } : {}),
+    ...(options.license ? { license: options.license } : {}),
+    ...(options.provider_url ? { provider_url: options.provider_url } : {}),
     entries
   };
   const canonical = JSON.stringify(payload);

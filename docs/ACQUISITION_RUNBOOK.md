@@ -69,7 +69,7 @@ Build the drug catalogue before matching patents. Both FDA inputs are ZIP files 
 ```powershell
 docker compose run --rm api python scripts/bulk_pipeline.py ingest-fda `
   --drugs-fda /raw/drugs_at_fda/2026-07-24/drugsatfda.zip `
-  --orange-book /raw/fda_orange_book/2026-07/eobzip.zip `
+  --orange-book /raw/fda_orange_book/2026-06/EOBZIP_2026_06.zip `
   --release 2026-07-24
 
 docker compose run --rm api python scripts/bulk_pipeline.py ingest-chembl `
@@ -79,6 +79,10 @@ docker compose run --rm api python scripts/bulk_pipeline.py ingest-chembl `
 
 The direct ChEMBL command is retained for fixtures and machines with explicit
 local capacity. In the cloud-first deployment, run this in Colab instead:
+
+Before downloading ChEMBL, create a small Colab file in the mounted Drive and
+confirm the account has enough cloud quota. Stop if Drive reports quota
+exhaustion; do not fall back to local bulk storage.
 
 ```bash
 python scripts/cloud_prepare.py chembl \
@@ -129,7 +133,7 @@ Export the compact local structure seeds to Drive:
 
 ```powershell
 docker compose run --rm api python scripts/cloud_prepare.py export-seeds `
-  --db data/curated/scaleup.sqlite `
+  --db data/curated/rxn2-production.sqlite `
   --output /cloud-results/surechembl/2026-07-21/seeds.jsonl `
   --report /cloud-results/surechembl/2026-07-21/seeds-report.json
 ```

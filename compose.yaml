@@ -5,13 +5,19 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     environment:
-      SCALEUP_DB_PATH: /workspace/data/curated/scaleup.sqlite
-      RXN2_DB_PATH: /workspace/data/curated/scaleup.sqlite
+      SCALEUP_DB_PATH: ${RXN2_DB_PATH:-/workspace/data/curated/rxn2-production.sqlite}
+      RXN2_DB_PATH: ${RXN2_DB_PATH:-/workspace/data/curated/rxn2-production.sqlite}
+      RXN2_SEED_DEMO: ${RXN2_SEED_DEMO:-false}
       RXN2_RAW_ROOT: /raw
       RXN2_CACHE_ROOT: /workspace/data/cache
       GROQ_API_KEY: ${GROQ_API_KEY:-}
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     volumes:
       - .:/workspace
       - "${RXN2_RAW_ROOT:-./data/raw}:/raw:ro"
@@ -28,4 +34,5 @@ services:
     ports:
       - "5173:5173"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
