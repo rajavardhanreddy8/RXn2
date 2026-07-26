@@ -674,6 +674,163 @@ def duckdb_path(path: Path) -> str:
     return path.resolve().as_posix().replace("'", "''")
 
 
+def upsert_patent_candidate(
+    db: sqlite3.Connection,
+    record: dict[str, object],
+    release_id: str,
+    artifact_id: str,
+    parser_version: str,
+    created_at: str,
+) -> str | None:
+    publication = clean(record.get("publication_number"))
+    if not publication:
+        return None
+    publication = re.sub(r"\s+", "", publication).upper()
+    drug_id = clean(record.get("drug_id"))
+    compound_id = clean(record.get("compound_id"))
+    source_compound_id = clean(record.get("source_compound_id"))
+    match_type = clean(record.get("match_type"))
+    if not drug_id or not compound_id or not source_compound_id:
+        raise ValueError("candidate requires drug_id, compound_id, and source_compound_id")
+    if match_type not in {"exact_structure", "same_connectivity"}:
+        raise ValueError(f"unsupported candidate match_type: {match_type!r}")
+    if not db.execute(
+        """SELECT 1 FROM drug_compound
+           WHERE drug_id = ? AND compound_id = ?""",
+        (drug_id, compound_id),
+    ).fetchone():
+        raise ValueError(f"candidate references an unknown drug/compound link: {drug_id}")
+
+    family_id = record.get("family_id")
+    family = (
+        f"surechembl:{family_id}"
+        if family_id is not None
+        else f"surechembl-publication:{publication}"
+    )
+    db.execute(
+        """INSERT OR IGNORE INTO patent_family
+        (family_id, family_type, source_id, confidence)
+        VALUES (?, 'source_reported', 'surechembl_bulk', 0.9)""",
+        (family,),
+    )
+    db.execute(
+        """INSERT INTO patent_document
+        (publication_number, country_code, publication_date, title, artifact_id,
+         source_id, source_document_id, parser_version, raw_record_json)
+        VALUES (?, ?, ?, ?, ?, 'surechembl_bulk', ?, ?, ?)
+        ON CONFLICT(publication_number) DO UPDATE SET
+          title=COALESCE(excluded.title, patent_document.title),
+          publication_date=COALESCE(excluded.publication_date, patent_document.publication_date)""",
+        (
+            publication,
+            clean(record.get("country")) or publication[:2],
+            clean(record.get("publication_date")),
+            clean(record.get("title")),
+            artifact_id,
+            clean(record.get("source_patent_id")),
+            parser_version,
+            json_text(
+                {
+                    "assignee": record.get("assignee"),
+                    "cpc": record.get("cpc"),
+                    "ipcr": record.get("ipcr"),
+                    "snapshot_manifest_sha256": record.get("snapshot_manifest_sha256"),
+                }
+            ),
+        ),
+    )
+    db.execute(
+        """INSERT OR IGNORE INTO patent_family_member
+        (family_id, publication_number, relationship) VALUES (?, ?, 'member')""",
+        (family, publication),
+    )
+    field_id = clean(record.get("field_id"))
+    confidence = 0.98 if match_type == "exact_structure" else 0.85
+    candidate_id = stable_id(
+        "surechembl-candidate",
+        drug_id,
+        compound_id,
+        publication,
+        source_compound_id,
+        field_id,
+    )
+    db.execute(
+        """INSERT INTO patent_candidate
+        (candidate_id, drug_id, compound_id, publication_number, source_release_id,
+         source_compound_id, source_field_id, source_field_name, match_type,
+         confidence, review_status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'needs_review', ?)
+        ON CONFLICT(candidate_id) DO UPDATE SET
+          source_field_name=excluded.source_field_name,
+          confidence=excluded.confidence""",
+        (
+            candidate_id,
+            drug_id,
+            compound_id,
+            publication,
+            release_id,
+            source_compound_id,
+            field_id,
+            clean(record.get("field_name")),
+            match_type,
+            confidence,
+            created_at,
+        ),
+    )
+    return publication
+
+
+def ingest_patent_candidates_jsonl(
+    db: sqlite3.Connection,
+    input_path: Path,
+    release: str,
+) -> dict[str, int]:
+    release_id, artifacts = register_release(
+        db,
+        "surechembl_bulk",
+        release,
+        [input_path],
+        "cloud-surechembl-candidate-jsonl-v1",
+    )
+    artifact_id = artifacts[input_path.name.casefold()]
+    counts = {"candidates": 0, "patents": 0}
+    seen_patents: set[str] = set()
+    created_at = now()
+    with atomic(db, "candidate_jsonl"), input_path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as error:
+                raise ValueError(
+                    f"invalid candidate JSON on line {line_number}: {error.msg}"
+                ) from error
+            if not isinstance(record, dict):
+                raise ValueError(f"candidate line {line_number} must be an object")
+            manifest_hash = clean(record.get("snapshot_manifest_sha256"))
+            if not manifest_hash or not re.fullmatch(r"[0-9a-fA-F]{64}", manifest_hash):
+                raise ValueError(
+                    f"candidate line {line_number} requires snapshot_manifest_sha256"
+                )
+            publication = upsert_patent_candidate(
+                db,
+                record,
+                release_id,
+                artifact_id,
+                "cloud-surechembl-candidate-jsonl-v1",
+                created_at,
+            )
+            if not publication:
+                continue
+            counts["candidates"] += 1
+            if publication not in seen_patents:
+                seen_patents.add(publication)
+                counts["patents"] += 1
+    db.commit()
+    return counts
+
+
 def ingest_surechembl(
     db: sqlite3.Connection,
     snapshot: Path,
@@ -736,55 +893,32 @@ def ingest_surechembl(
                 publication_number, country, publication_date, family_id, title,
                 assignee, cpc, ipcr, field_id, field_name,
             ) = record
-            publication = clean(publication_number)
+            publication = upsert_patent_candidate(
+                db,
+                {
+                    "drug_id": drug_id,
+                    "compound_id": compound_id,
+                    "source_compound_id": source_compound_id,
+                    "match_type": match_type,
+                    "source_patent_id": source_patent_id,
+                    "publication_number": publication_number,
+                    "country": country,
+                    "publication_date": publication_date,
+                    "family_id": family_id,
+                    "title": title,
+                    "assignee": assignee,
+                    "cpc": cpc,
+                    "ipcr": ipcr,
+                    "field_id": field_id,
+                    "field_name": field_name,
+                },
+                release_id,
+                patent_artifact,
+                "surechembl-parquet-v1",
+                created_at,
+            )
             if not publication:
                 continue
-            publication = re.sub(r"\s+", "", publication).upper()
-            family = f"surechembl:{family_id}" if family_id is not None else f"surechembl-publication:{publication}"
-            db.execute(
-                """INSERT OR IGNORE INTO patent_family
-                (family_id, family_type, source_id, confidence) VALUES (?, 'source_reported', 'surechembl_bulk', 0.9)""",
-                (family,),
-            )
-            db.execute(
-                """INSERT INTO patent_document
-                (publication_number, country_code, publication_date, title, artifact_id,
-                 source_id, source_document_id, parser_version, raw_record_json)
-                VALUES (?, ?, ?, ?, ?, 'surechembl_bulk', ?, 'surechembl-parquet-v1', ?)
-                ON CONFLICT(publication_number) DO UPDATE SET
-                  title=COALESCE(excluded.title, patent_document.title),
-                  publication_date=COALESCE(excluded.publication_date, patent_document.publication_date)""",
-                (
-                    publication, clean(country) or publication[:2], clean(publication_date), clean(title),
-                    patent_artifact, clean(source_patent_id),
-                    json_text({"assignee": assignee, "cpc": cpc, "ipcr": ipcr}),
-                ),
-            )
-            db.execute(
-                """INSERT OR IGNORE INTO patent_family_member
-                (family_id, publication_number, relationship) VALUES (?, ?, 'member')""",
-                (family, publication),
-            )
-            confidence = 0.98 if match_type == "exact_structure" else 0.85
-            candidate_id = stable_id(
-                "surechembl-candidate", drug_id, compound_id, publication,
-                source_compound_id, field_id,
-            )
-            db.execute(
-                """INSERT INTO patent_candidate
-                (candidate_id, drug_id, compound_id, publication_number, source_release_id,
-                 source_compound_id, source_field_id, source_field_name, match_type,
-                 confidence, review_status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'needs_review', ?)
-                ON CONFLICT(candidate_id) DO UPDATE SET
-                  source_field_name=excluded.source_field_name,
-                  confidence=excluded.confidence""",
-                (
-                    candidate_id, drug_id, compound_id, publication, release_id,
-                    str(source_compound_id), clean(field_id), clean(field_name), match_type,
-                    confidence, created_at,
-                ),
-            )
             counts["candidates"] += 1
             if publication not in seen_patents:
                 seen_patents.add(publication)
@@ -935,6 +1069,9 @@ def parser() -> argparse.ArgumentParser:
     surechembl.add_argument("--snapshot", type=Path, required=True)
     surechembl.add_argument("--release", required=True)
     surechembl.add_argument("--batch-size", type=int, default=25_000)
+    candidates = commands.add_parser("ingest-patent-candidates-jsonl")
+    candidates.add_argument("--input", type=Path, required=True)
+    candidates.add_argument("--release", required=True)
     commands.add_parser("refresh-coverage")
     commands.add_parser("summary")
     return result
@@ -986,6 +1123,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             result = ingest_surechembl(
                 db, staged_snapshot, args.release, args.batch_size, original_snapshot
+            )
+            result["coverage"] = refresh_coverage(db)
+        elif args.command == "ingest-patent-candidates-jsonl":
+            result = ingest_patent_candidates_jsonl(
+                db, args.input.resolve(), args.release
             )
             result["coverage"] = refresh_coverage(db)
         elif args.command == "refresh-coverage":

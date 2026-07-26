@@ -47,7 +47,10 @@ npm run catalogue:init
 npm run catalogue:summary
 ```
 
-Google Drive is authoritative for raw snapshots. The pipeline stages only active inputs into the bounded local `data/cache` working set; SQLite remains local. The global FDA, ChEMBL and SureChEMBL snapshots are not bundled.
+Google Drive is authoritative for raw snapshots and cloud-produced exchange
+files. Multi-gigabyte ChEMBL/SureChEMBL work runs in Colab or another cloud
+runtime; RXN2 imports only compact JSONL results into local SQLite. Windows may
+directly stream bounded source files, but it never stages the bulk patent corpus.
 
 The checked-in examples are explicitly synthetic. They validate the machinery only; they are never eligible to support scientific conclusions.
 
@@ -73,9 +76,9 @@ docker compose run --rm api pytest -q apps/api/tests
 
 `GROQ_API_KEY` is optional. When absent, `/api/extraction/qroq` returns a controlled disabled response and all core functions continue locally. When enabled, extracted facts enter `needs_review`; they never enter the accepted graph automatically.
 
-Catalogue ingestion does not download or rewrite source files. It verifies and
-stages operator-provided Drive snapshots, streams SHA-256 in bounded memory, and
-records release artifacts in the evidence database before parsing.
+Catalogue ingestion does not download or rewrite source files. It verifies
+cloud-produced import artifacts, streams SHA-256 in bounded memory, and records
+release artifacts in the evidence database before parsing.
 
 ## Operating rule
 

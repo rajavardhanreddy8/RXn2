@@ -1,10 +1,12 @@
 {
-  "policy_version": "hybrid-storage-v1",
+  "policy_version": "cloud-first-v2",
   "raw_root": "I:\\My Drive\\RXN2\\data\\raw",
   "cache_root": "data/cache",
   "curated_db": "data/curated/scaleup.sqlite",
-  "cache_max_bytes": 268435456000,
-  "minimum_free_bytes": 107374182400,
-  "minimum_free_fraction": 0.1,
+  "cloud_only": true,
+  "stream_max_bytes": 536870912,
+  "cache_max_bytes": 5368709120,
+  "minimum_free_bytes": 5368709120,
+  "minimum_free_fraction": 0.02,
   "verify_sha256": true
 }

@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
+import shutil
 import sqlite3
 import sys
 from pathlib import Path
@@ -14,6 +16,11 @@ try:
     from scripts.bulk_pipeline import DEFAULT_DB, DEFAULT_SCHEMA, connect, json_text, now, sha256_file
 except ModuleNotFoundError:
     from bulk_pipeline import DEFAULT_DB, DEFAULT_SCHEMA, connect, json_text, now, sha256_file
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PROCESSED_ROOT = ROOT / "data" / "processed" / "ocr"
+MAX_PROCESSED_BYTES = 256 * 1024 * 1024
 
 
 def text_sha256(value: str) -> str:
@@ -27,13 +34,25 @@ def ingest_ocr_result(
     source_document: Path,
     source_url: str | None = None,
     model: str = "baidu/Unlimited-OCR",
+    source_document_sha256: str | None = None,
+    processed_root: Path | None = None,
 ) -> dict:
     result_path = result_path.resolve()
     source_document = source_document.resolve()
     if not result_path.is_file():
         raise FileNotFoundError(result_path)
-    if source_document.suffix.casefold() != ".pdf" or not source_document.is_file():
-        raise ValueError("source document must be an existing PDF")
+    if source_document.suffix.casefold() != ".pdf":
+        raise ValueError("source document must identify a PDF")
+    if source_document_sha256:
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", source_document_sha256):
+            raise ValueError("source document SHA-256 must contain 64 hex characters")
+        input_sha256 = source_document_sha256.lower()
+    elif source_document.is_file():
+        input_sha256 = sha256_file(source_document)
+    else:
+        raise ValueError(
+            "source document is unavailable locally; provide its cloud-computed SHA-256"
+        )
     result = json.loads(result_path.read_text(encoding="utf-8"))
     if result.get("status") != "succeeded":
         raise ValueError("OCR result status must be succeeded")
@@ -48,9 +67,33 @@ def ingest_ocr_result(
         raise ValueError(f"unknown patent publication: {publication}")
 
     output_directory = result_path.parent
+    source_artifacts = [
+        output_directory / name for name in ("result.json", "result.md", "result.txt")
+    ]
+    total_bytes = sum(path.stat().st_size for path in source_artifacts if path.is_file())
+    if total_bytes > MAX_PROCESSED_BYTES:
+        raise ValueError(
+            f"OCR processed output exceeds the {MAX_PROCESSED_BYTES}-byte local limit"
+        )
+    local_directory = None
+    if processed_root:
+        local_directory = processed_root.resolve() / job_id
+        local_directory.mkdir(parents=True, exist_ok=True)
+        for source in source_artifacts:
+            if not source.is_file():
+                continue
+            target = local_directory / source.name
+            partial = target.with_suffix(target.suffix + ".partial")
+            try:
+                shutil.copy2(source, partial)
+                if sha256_file(partial) != sha256_file(source):
+                    raise RuntimeError(f"processed OCR checksum mismatch: {source.name}")
+                partial.replace(target)
+            finally:
+                partial.unlink(missing_ok=True)
     artifacts = {}
     for name in ("result.json", "result.md", "result.txt"):
-        path = output_directory / name
+        path = (local_directory or output_directory) / name
         if path.is_file():
             artifacts[name] = {
                 "path": str(path),
@@ -62,7 +105,7 @@ def ingest_ocr_result(
         {
             "publication_number": publication,
             "source_document": str(source_document),
-            "source_document_sha256": sha256_file(source_document),
+            "source_document_sha256": input_sha256,
             "text_sha256": text_sha256(text),
             "text_length": len(text),
             "artifacts": artifacts,
@@ -89,7 +132,7 @@ def ingest_ocr_result(
             extraction_job_id,
             model,
             text_sha256("unlimited-ocr-colab-v1"),
-            sha256_file(source_document),
+            input_sha256,
             sha256_file(result_path),
             source_url,
             json_text(metadata),
@@ -105,6 +148,7 @@ def ingest_ocr_result(
         "review_status": "unreviewed",
         "evidence_spans_created": 0,
         "human_review_required": True,
+        "processed_output": str(local_directory) if local_directory else None,
     }
 
 
@@ -115,6 +159,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--result", type=Path, required=True)
     parser.add_argument("--publication", required=True)
     parser.add_argument("--source-document", type=Path, required=True)
+    parser.add_argument("--source-document-sha256")
+    parser.add_argument("--processed-root", type=Path, default=DEFAULT_PROCESSED_ROOT)
     parser.add_argument("--source-url")
     parser.add_argument("--model", default="baidu/Unlimited-OCR")
     args = parser.parse_args(argv)
@@ -127,6 +173,8 @@ def main(argv: list[str] | None = None) -> int:
             args.source_document,
             args.source_url,
             args.model,
+            args.source_document_sha256,
+            args.processed_root,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

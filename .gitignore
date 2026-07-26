@@ -15,6 +15,7 @@ data/raw/**
 !data/raw/.gitkeep
 data/cache/**
 !data/cache/.gitkeep
+data/cloud-results/
 data/ocr/
 
 # Rebuildable database/export artifacts.

@@ -12,12 +12,14 @@ from scripts.bulk_pipeline import (
     ingest_catalogue_jsonl,
     ingest_chembl,
     ingest_fda,
+    ingest_patent_candidates_jsonl,
     ingest_surechembl,
     refresh_coverage,
     register_release,
     register_sources,
 )
 from scripts.catalogue_converters import convert
+from scripts.cloud_prepare import export_chembl, export_seeds, export_surechembl
 from scripts.ingest_ocr_result import ingest_ocr_result
 
 
@@ -130,13 +132,43 @@ def test_catalogue_and_surechembl_pipeline(tmp_path):
     (ocr_output / "result.txt").write_text(
         "Example 1: acetaminophen was isolated.", encoding="utf-8"
     )
-    ocr = ingest_ocr_result(db, result_json, "US-123-A1", source_pdf)
+    processed_ocr = tmp_path / "processed-ocr"
+    ocr = ingest_ocr_result(
+        db,
+        result_json,
+        "US-123-A1",
+        source_pdf,
+        processed_root=processed_ocr,
+    )
     assert ocr["status"] == "needs_review"
     assert ocr["evidence_spans_created"] == 0
+    assert (processed_ocr / "job-1" / "result.txt").is_file()
     assert db.execute(
         "SELECT count(*) FROM extraction_job WHERE review_status='unreviewed'"
     ).fetchone()[0] == 1
     assert refresh_coverage(db) == {"patents_found": 1}
+
+    cloud_output = tmp_path / "ocr" / "job-cloud"
+    cloud_output.mkdir()
+    cloud_result = cloud_output / "result.json"
+    cloud_result.write_text(
+        '{"job_id":"job-cloud","status":"succeeded","text":"Cloud OCR text."}',
+        encoding="utf-8",
+    )
+    (cloud_output / "result.txt").write_text("Cloud OCR text.", encoding="utf-8")
+    cloud_ocr = ingest_ocr_result(
+        db,
+        cloud_result,
+        "US-123-A1",
+        tmp_path / "cloud-only.pdf",
+        source_document_sha256="b" * 64,
+        processed_root=processed_ocr,
+    )
+    assert cloud_ocr["status"] == "needs_review"
+    assert db.execute(
+        "SELECT input_sha256 FROM extraction_job WHERE extraction_job_id=?",
+        ("unlimited-ocr:job-cloud",),
+    ).fetchone()[0] == "b" * 64
     db.close()
 
 
@@ -290,4 +322,34 @@ def test_malformed_catalogue_release_rolls_back_records(tmp_path):
     assert db.execute(
         "SELECT count(*) FROM source_release WHERE release_id='pubchem_bulk:malformed-1'"
     ).fetchone()[0] == 1
+    db.close()
+
+
+def test_cloud_preparation_round_trip_keeps_raw_parquet_out_of_local_db(tmp_path):
+    chembl = tmp_path / "chembl.sqlite"
+    make_chembl(chembl)
+    catalogue = tmp_path / "chembl-catalogue.jsonl"
+    assert export_chembl(chembl, catalogue)["catalogue_records"] == 1
+
+    db = connect(tmp_path / "catalogue.sqlite", ROOT / "sql" / "schema.sql")
+    register_sources(db, ROOT / "configs" / "sources.json")
+    ingest_catalogue_jsonl(db, catalogue, "chembl_snapshot", "CHEMBL37")
+    seeds = tmp_path / "seeds.jsonl"
+    assert export_seeds(tmp_path / "catalogue.sqlite", seeds)["seed_records"] == 1
+
+    snapshot = tmp_path / "surechembl"
+    make_surechembl(snapshot)
+    candidates = tmp_path / "candidates.jsonl"
+    exported = export_surechembl(
+        snapshot, seeds, candidates, "a" * 64, batch_size=10
+    )
+    assert exported == {"seed_records": 1, "candidate_records": 1}
+    imported = ingest_patent_candidates_jsonl(db, candidates, "2026-07-21")
+    assert imported == {"candidates": 1, "patents": 1}
+    assert refresh_coverage(db) == {"patents_found": 1}
+    artifact_paths = [
+        row[0] for row in db.execute("SELECT relative_path FROM artifact")
+    ]
+    assert any(path.endswith("candidates.jsonl") for path in artifact_paths)
+    assert not any(path.endswith(".parquet") for path in artifact_paths)
     db.close()

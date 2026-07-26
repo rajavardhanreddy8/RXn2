@@ -54,14 +54,14 @@ The current root-level `src/` is a zero-dependency bootstrap for `packages/domai
 ## Storage choices
 
 - **Raw:** original ZIP/XML/Parquet/JSON files under the Google Drive `RXN2/data/raw` root; content addressed by SHA-256.
-- **Local cache:** rebuildable staged inputs, capped at 250 GB while retaining at least 100 GB or 10% free disk space.
-- **Working analytics:** Parquet plus DuckDB for large SureChEMBL/USPTO joins.
+- **Local transient space:** at most 5 GB, with a 5 GB free-space floor; never used for bulk patent or ChEMBL snapshots.
+- **Cloud working analytics:** Colab/cloud DuckDB reads Drive Parquet and emits compact, checksummed JSONL imports.
 - **Curated transactional evidence:** SQLite for one researcher; PostgreSQL when concurrent reviewers are introduced.
 - **Training:** immutable Parquet/JSONL shards and a dataset manifest.
 - **Serving:** read-only SQLite/PostgreSQL plus local model artifacts.
 
-SQLite is implemented now because it is portable and testable without external services. Do not load full SureChEMBL into SQLite; filter/join its Parquet snapshots with DuckDB and insert only the candidate/curated slice.
-The pipeline fails closed when Drive is unavailable or the cache/free-space limits would be crossed. SQLite and DuckDB working databases must never be placed on Drive.
+SQLite is implemented now because it is portable and testable without external services. Do not load full SureChEMBL into SQLite; cloud DuckDB filters its Drive-backed Parquet snapshots and local RXN2 inserts only the candidate/curated slice.
+The pipeline fails closed when Drive is unavailable, a local free-space floor would be crossed, or a raw input is too large for bounded direct streaming. SQLite stays local. Cloud DuckDB temporary files live in the cloud runtime, not on the Windows machine or inside Drive.
 
 ## Stable boundaries
 

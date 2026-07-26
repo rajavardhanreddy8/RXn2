@@ -90,3 +90,23 @@ def test_manifest_records_exact_files(tmp_path):
     assert result["total_bytes"] == 9
     assert [item["path"] for item in result["files"]] == ["a.txt", "b.txt"]
     assert all(len(item["sha256"]) == 64 for item in result["files"])
+
+
+def test_cloud_only_streams_small_files_and_blocks_large_raw_inputs(tmp_path):
+    current = policy(
+        tmp_path,
+        cloud_only=True,
+        stream_max_bytes=10,
+        minimum_free_bytes=0,
+        minimum_free_fraction=0,
+    )
+    current.raw_root.mkdir(parents=True)
+    small = current.raw_root / "small.json"
+    small.write_bytes(b"small")
+    assert stage_file(small, current) == small.resolve()
+    assert not current.cache_root.exists()
+
+    large = current.raw_root / "large.parquet"
+    large.write_bytes(b"x" * 11)
+    with pytest.raises(RuntimeError, match="cloud processing required"):
+        stage_file(large, current)

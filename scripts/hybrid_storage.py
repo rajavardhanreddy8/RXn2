@@ -42,6 +42,8 @@ class StoragePolicy:
     minimum_free_bytes: int
     minimum_free_fraction: float
     verify_sha256: bool = True
+    cloud_only: bool = False
+    stream_max_bytes: int = 512 * 1024 * 1024
 
     @classmethod
     def load(cls, path: Path = DEFAULT_POLICY) -> "StoragePolicy":
@@ -62,6 +64,10 @@ class StoragePolicy:
                 os.getenv("RXN2_MINIMUM_FREE_FRACTION", values["minimum_free_fraction"])
             ),
             verify_sha256=bool(values.get("verify_sha256", True)),
+            cloud_only=bool(values.get("cloud_only", False)),
+            stream_max_bytes=int(
+                os.getenv("RXN2_STREAM_MAX_BYTES", values.get("stream_max_bytes", 536870912))
+            ),
         )
         policy.validate_layout()
         return policy
@@ -71,6 +77,8 @@ class StoragePolicy:
             raise ValueError("cache_max_bytes must be positive")
         if not 0 <= self.minimum_free_fraction < 1:
             raise ValueError("minimum_free_fraction must be between 0 and 1")
+        if self.stream_max_bytes <= 0:
+            raise ValueError("stream_max_bytes must be positive")
         if is_relative_to(self.curated_db, self.raw_root):
             raise ValueError("curated SQLite database must not live inside the Drive raw root")
         if is_relative_to(self.cache_root, self.raw_root):
@@ -117,6 +125,14 @@ def stage_file(source: Path, policy: StoragePolicy) -> Path:
     if not is_relative_to(source, raw_root):
         return source
     policy.require_raw_root()
+    if policy.cloud_only:
+        if source.stat().st_size > policy.stream_max_bytes:
+            raise RuntimeError(
+                f"cloud processing required for {source.name}: "
+                f"{source.stat().st_size} bytes exceeds the "
+                f"{policy.stream_max_bytes}-byte direct-stream limit"
+            )
+        return source
 
     target = policy.cache_root / source.relative_to(raw_root)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -202,6 +218,8 @@ def main(argv: list[str] | None = None) -> int:
                 "curated_db": str(policy.curated_db),
                 "cache_bytes": cache_bytes(policy.cache_root),
                 "cache_max_bytes": policy.cache_max_bytes,
+                "cloud_only": policy.cloud_only,
+                "stream_max_bytes": policy.stream_max_bytes,
                 "available_bytes": usage.free,
                 "required_free_bytes": policy.reserve_bytes(usage.total),
             }

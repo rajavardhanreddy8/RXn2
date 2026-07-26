@@ -35,8 +35,8 @@ For the first patent–compound candidate build, the minimum SureChEMBL files ar
 
 The pinned 2026-07-21 core set is about 14 GB before processing
 (`compounds` 3.9 GB, `patent_compound_map` 4.6 GB, `patents` 5.5 GB, plus
-`fields`). Ensure the storage check passes and never load the set into
-application memory.
+`fields`). Process it in Colab/cloud compute. Do not copy or stage these files
+on Windows; Google Drive for Desktop maintains its own local cache.
 
 ## 3. Manifest every artifact
 
@@ -62,7 +62,7 @@ Before parsing:
 - file counts and key column types are profiled;
 - no dated release silently points to changing content.
 
-## 5. Build a candidate slice
+## 5. Build the catalogue
 
 Build the drug catalogue before matching patents. Both FDA inputs are ZIP files retained exactly as downloaded; ChEMBL is its extracted SQLite database:
 
@@ -74,6 +74,25 @@ docker compose run --rm api python scripts/bulk_pipeline.py ingest-fda `
 
 docker compose run --rm api python scripts/bulk_pipeline.py ingest-chembl `
   --chembl-sqlite /raw/chembl_snapshot/CHEMBL37/chembl_37.db `
+  --release CHEMBL37
+```
+
+The direct ChEMBL command is retained for fixtures and machines with explicit
+local capacity. In the cloud-first deployment, run this in Colab instead:
+
+```bash
+python scripts/cloud_prepare.py chembl \
+  --chembl-sqlite /content/drive/MyDrive/RXN2/data/raw/chembl_snapshot/CHEMBL37/chembl_37.db \
+  --output /content/drive/MyDrive/RXN2/data/processed/chembl/CHEMBL37/catalogue.jsonl \
+  --report /content/drive/MyDrive/RXN2/data/processed/chembl/CHEMBL37/report.json
+```
+
+Then import only the compact result locally:
+
+```powershell
+docker compose run --rm api python scripts/bulk_pipeline.py ingest-catalogue-jsonl `
+  --input /cloud-results/chembl/CHEMBL37/catalogue.jsonl `
+  --source chembl_snapshot `
   --release CHEMBL37
 ```
 
@@ -106,15 +125,38 @@ first. The EMA converter accepts the official medicine-pages JSON file directly
 and excludes veterinary, explicitly biologic, vaccine, and advanced-therapy
 records before matching.
 
-Ingest a pinned SureChEMBL directory after all four required Parquet files are present:
+Export the compact local structure seeds to Drive:
 
 ```powershell
-docker compose run --rm api python scripts/bulk_pipeline.py ingest-surechembl `
-  --snapshot /raw/surechembl_bulk/2026-07-21 `
+docker compose run --rm api python scripts/cloud_prepare.py export-seeds `
+  --db data/curated/scaleup.sqlite `
+  --output /cloud-results/surechembl/2026-07-21/seeds.jsonl `
+  --report /cloud-results/surechembl/2026-07-21/seeds-report.json
+```
+
+Run the multi-gigabyte join in Colab. Replace the manifest placeholder with the
+SHA-256 printed by the acquisition manifest command:
+
+```bash
+python scripts/cloud_prepare.py surechembl \
+  --snapshot /content/drive/MyDrive/RXN2/data/raw/surechembl_bulk/2026-07-21 \
+  --seeds /content/drive/MyDrive/RXN2/data/processed/surechembl/2026-07-21/seeds.jsonl \
+  --output /content/drive/MyDrive/RXN2/data/processed/surechembl/2026-07-21/candidates.jsonl \
+  --report /content/drive/MyDrive/RXN2/data/processed/surechembl/2026-07-21/candidates-report.json \
+  --snapshot-manifest-sha256 <64-hex-manifest-sha256>
+```
+
+Import only the filtered candidate result locally:
+
+```powershell
+docker compose run --rm api python scripts/bulk_pipeline.py ingest-patent-candidates-jsonl `
+  --input /cloud-results/surechembl/2026-07-21/candidates.jsonl `
   --release 2026-07-21
 ```
 
-The command uses DuckDB for the multi-gigabyte joins, streams result batches into SQLite, records artifact checksums, and refreshes `drug_coverage`. It is idempotent and safe to rerun for the same release. `exact_structure` and `same_connectivity` matches remain `needs_review` patent candidates.
+The importer verifies the snapshot-manifest hash on every row, validates all
+drug/compound links, is idempotent, and refreshes `drug_coverage`.
+`exact_structure` and `same_connectivity` matches remain `needs_review`.
 
 The standalone SQL template [`sql/duckdb/build_surechembl_candidates.sql`](../sql/duckdb/build_surechembl_candidates.sql) remains useful for warehouse exploration, but the Python command is the supported ingestion path.
 
@@ -126,10 +168,13 @@ After the Colab worker produces `result.json`, `result.md`, and `result.txt`, re
 docker compose run --rm api python scripts/ingest_ocr_result.py `
   --result /ocr/<job-id>/result.json `
   --publication US-1234567-A1 `
-  --source-document /raw/patent_fulltext/<release>/US-1234567-A1.pdf
+  --source-document /raw/patent_fulltext/<release>/US-1234567-A1.pdf `
+  --source-document-sha256 <cloud-computed-pdf-sha256>
 ```
 
-This creates only an `unreviewed` extraction job. It creates no evidence span or route until a reviewer records exact page/paragraph locations.
+Only bounded OCR result files are copied to local `data/processed/ocr`; the raw
+PDF remains on Drive. This creates an `unreviewed` extraction job and no
+evidence span or route until a reviewer records exact page/paragraph locations.
 
 ## 6. Acquire only candidate full text
 

@@ -1,5 +1,6 @@
 services:
   api:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -14,9 +15,11 @@ services:
     volumes:
       - .:/workspace
       - "${RXN2_RAW_ROOT:-./data/raw}:/raw:ro"
+      - "${RXN2_CLOUD_RESULTS_ROOT:-./data/cloud-results}:/cloud-results"
       - "${RXN2_OCR_ROOT:-./data/ocr}:/ocr:ro"
 
   web:
+    restart: unless-stopped
     build:
       context: apps/web
       dockerfile: Dockerfile
