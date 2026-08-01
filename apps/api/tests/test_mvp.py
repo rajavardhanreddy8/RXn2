@@ -81,6 +81,10 @@ def test_http_mvp_and_honest_benchmark_gap(local_database):
         assert health.status_code == 200
         assert health.json()["counts"]["reactions"] == 2
         assert health.json()["counts"]["drugs"] == 6
+        automation = client.get("/api/automation/status")
+        assert automation.status_code == 200
+        assert automation.json()["automatic_acceptance"] is False
+
 
         coverage = client.get("/api/catalogue/coverage")
         assert coverage.status_code == 200

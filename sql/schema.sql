@@ -599,6 +599,29 @@ CREATE TABLE IF NOT EXISTS extraction_job (
   completed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS pipeline_job (
+  pipeline_job_id TEXT PRIMARY KEY,
+  job_type TEXT NOT NULL,
+  input_identity TEXT NOT NULL,
+  input_sha256 TEXT,
+  status TEXT NOT NULL CHECK (status IN (
+    'queued', 'running', 'succeeded', 'failed', 'blocked', 'skipped'
+  )),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  queued_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  result_json TEXT NOT NULL DEFAULT '{}',
+  error_text TEXT,
+  UNIQUE (job_type, input_identity)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_job_status
+  ON pipeline_job(status, job_type, completed_at);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_job_type
+  ON pipeline_job(job_type, completed_at);
+
 CREATE INDEX IF NOT EXISTS idx_reaction_participant_compound_role
   ON reaction_participant(compound_id, role);
 CREATE INDEX IF NOT EXISTS idx_reaction_evidence ON reaction_instance(evidence_span_id);

@@ -215,3 +215,21 @@ footer { padding: 20px 5vw; display: flex; justify-content: space-between; backg
   .coverage-stats div { border-right: 0; border-bottom: 1px solid var(--line); }
   footer { gap: 15px; flex-direction: column; }
 }
+
+.automation-panel {
+  margin: 0;
+  padding: 65px 6vw;
+  background: #f4f8f6;
+  border-top: 1px solid var(--line);
+}
+.automation-panel h2 { margin: 8px 0 12px; }
+.automation-panel > div:first-child { max-width: 760px; }
+.automation-stats { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 28px; border: 1px solid var(--line); background: white; }
+.automation-stats div { padding: 22px; border-right: 1px solid var(--line); }
+.automation-stats div:last-child { border-right: 0; }
+.automation-stats span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.automation-stats strong { display: block; margin-top: 8px; font-size: 26px; }
+.automation-panel details { margin-top: 20px; }
+.automation-panel summary { cursor: pointer; font-weight: 700; }
+.automation-panel li { margin: 8px 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .automation-stats { grid-template-columns: 1fr 1fr; } }

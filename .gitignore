@@ -17,6 +17,7 @@ data/cache/**
 !data/cache/.gitkeep
 data/cloud-results/
 data/ocr/
+data/automation/
 
 # Rebuildable database/export artifacts.
 data/curated/*.sqlite

@@ -1,4 +1,4 @@
-import type { CoverageResponse, CoverageStatus, GenerateResponse, Graph } from './types'
+import type { AutomationStatus, CoverageResponse, CoverageStatus, GenerateResponse, Graph } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -50,4 +50,8 @@ export async function fetchCoverage(query = '', status: CoverageStatus | '' = ''
   if (query.trim()) parameters.set('query', query.trim())
   if (status) parameters.set('status', status)
   return request<CoverageResponse>(`/api/catalogue/coverage?${parameters}`)
+}
+
+export async function fetchAutomationStatus() {
+  return request<AutomationStatus>('/api/automation/status')
 }

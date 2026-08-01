@@ -109,3 +109,23 @@ export type CoverageResponse = {
   status_counts: Record<CoverageStatus, number>
   items: DrugCoverage[]
 }
+
+export type AutomationJob = {
+  pipeline_job_id: string
+  job_type: string
+  input_identity: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped'
+  attempt_count: number
+  started_at: string | null
+  completed_at: string | null
+  error_text: string | null
+}
+
+export type AutomationStatus = {
+  mode: string
+  scheduler: string
+  automatic_acceptance: boolean
+  status_counts: Record<string, number>
+  exceptions: AutomationJob[]
+  recent_jobs: AutomationJob[]
+}

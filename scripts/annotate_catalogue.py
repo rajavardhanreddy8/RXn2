@@ -16,7 +16,24 @@ from apps.api.app.chemistry import annotate_compound
 from scripts.bulk_pipeline import DEFAULT_DB, DEFAULT_SCHEMA, connect
 
 
+def seed_periodic_table(db: sqlite3.Connection) -> int:
+    try:
+        from rdkit.Chem import GetPeriodicTable
+    except ModuleNotFoundError as error:
+        raise RuntimeError("RDKit is required to seed the periodic table") from error
+    periodic = GetPeriodicTable()
+    db.executemany(
+        "INSERT OR IGNORE INTO element (element_id, atomic_number, symbol, name) VALUES (?, ?, ?, ?)",
+        [
+            (number, number, periodic.GetElementSymbol(number), periodic.GetElementName(number))
+            for number in range(1, 119)
+        ],
+    )
+    return db.execute("SELECT count(*) FROM element").fetchone()[0]
+
+
 def annotate_catalogue(db: sqlite3.Connection) -> dict[str, int]:
+    seed_periodic_table(db)
     rows = db.execute("SELECT compound_id, smiles FROM compound ORDER BY compound_id").fetchall()
     counts = {"input": len(rows), "annotated": 0, "missing_structure": 0, "invalid_structure": 0}
     for row in rows:

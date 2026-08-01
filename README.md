@@ -52,6 +52,22 @@ files. Multi-gigabyte ChEMBL/SureChEMBL work runs in Colab or another cloud
 runtime; RXN2 imports only compact JSONL results into local SQLite. Windows may
 directly stream bounded source files, but it never stages the bulk patent corpus.
 
+
+### Unattended operation without GCP
+
+RXN2 can run its bounded local stages through Windows Task Scheduler while
+Google Drive remains the authoritative raw and processed-artifact store. Text
+PDFs are extracted locally; scanned PDFs are queued for the existing Colab OCR
+notebook. No machine-produced chemistry is accepted automatically.
+
+```powershell
+npm run automation:run
+npm run automation:status
+npm run automation:install
+```
+
+The scheduled task runs daily at 02:00, starts when the laptop next becomes
+available, prevents overlapping runs, stops after two hours, and writes the
 The checked-in examples are explicitly synthetic. They validate the machinery only; they are never eligible to support scientific conclusions.
 
 ## Run the MVP

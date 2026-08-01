@@ -71,6 +71,30 @@ def health() -> dict:
         }
     return {"status": "ok", "database": "sqlite", "counts": counts}
 
+@app.get("/api/automation/status")
+def automation_status() -> dict:
+    with connect() as db:
+        status_counts = {
+            row["status"]: int(row["count"])
+            for row in db.execute(
+                "SELECT status, count(*) count FROM pipeline_job GROUP BY status"
+            )
+        }
+        recent = [dict(row) for row in db.execute(
+            """SELECT pipeline_job_id, job_type, input_identity, status, attempt_count,
+                      started_at, completed_at, error_text
+               FROM pipeline_job
+               ORDER BY coalesce(completed_at, started_at, queued_at) DESC LIMIT 25"""
+        )]
+    return {
+        "mode": "windows-drive-colab",
+        "scheduler": "Windows Task Scheduler",
+        "automatic_acceptance": False,
+        "status_counts": status_counts,
+        "exceptions": [row for row in recent if row["status"] in {"failed", "blocked"}],
+        "recent_jobs": recent,
+    }
+
 
 @app.get("/api/catalogue/coverage")
 def catalogue_coverage(
