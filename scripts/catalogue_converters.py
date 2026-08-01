@@ -42,6 +42,16 @@ def values(value_text: str | None) -> list[str]:
 
 
 def rows(path: Path) -> Iterable[dict[str, str]]:
+    if path.suffix.casefold() == ".jsonl":
+        with path.open(encoding="utf-8-sig") as handle:
+            for line_number, line in enumerate(handle, 1):
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                if not isinstance(record, dict):
+                    raise ValueError(f"JSONL record {line_number} must be an object")
+                yield record
+        return
     if path.suffix.casefold() == ".json":
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
         if isinstance(payload, list):

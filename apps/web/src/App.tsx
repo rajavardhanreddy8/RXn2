@@ -120,7 +120,7 @@ export default function App() {
             {error && <div className="alert error"><b>Service error</b><span>{error}</span></div>}
             {!result && !loading && <div className="empty-state"><div className="orbit"><span>S</span></div><h2>Start with a target brief</h2><p>The local engine will resolve the compound, traverse reviewed transformations, calculate material demand, and rank complete routes.</p></div>}
             {loading && <div className="empty-state"><div className="orbit loading"><span>⌁</span></div><h2>Traversing the graph</h2><p>Checking evidence, material availability, yields, scale precedent, and local quote coverage.</p></div>}
-            {result?.coverage_gap && <div className="coverage-gap"><span className="gap-icon">!</span><div><span className="kicker">Honest coverage gap</span><h2>No complete reviewed route found</h2><p>{result.message}</p><p className="next-action">Next data action: acquire a lawful patent snapshot, extract candidates, validate structures and quantities, then accept edges through human review.</p></div></div>}
+            {result?.coverage_gap && view === 'routes' && <div className="coverage-gap"><span className="gap-icon">!</span><div><span className="kicker">Honest coverage gap</span><h2>No complete reviewed route found</h2><p>{result.message}</p><p className="next-action">Next data action: acquire a lawful patent snapshot, extract candidates, validate structures and quantities, then accept edges through human review.</p></div></div>}
             {result && !result.coverage_gap && view === 'routes' && <>
               <div className="summary-strip">
                 <div><span>Target</span><strong>{result.target.preferred_name}</strong></div>
@@ -134,7 +134,7 @@ export default function App() {
                 {result.routes.map((route) => <RouteCard key={route.route_id} route={route} selected={selected.includes(route.route_id)} onSelect={(checked) => setSelected((current) => checked ? [...current, route.route_id] : current.filter((id) => id !== route.route_id))} />)}
               </div>
             </>}
-            {result && !result.coverage_gap && view === 'graph' && <GraphView graph={graph} />}
+            {result && view === 'graph' && <GraphView graph={graph} />}
           </div>
         </section>
 

@@ -91,7 +91,7 @@ def annotate_compound(connection, compound_id: str, smiles: str) -> StructureRec
     )
     mol = Chem.MolFromSmiles(record.standardized_smiles)
     element_counts: dict[int, int] = {}
-    for atom in mol.GetAtoms():
+    for atom in Chem.AddHs(mol).GetAtoms():
         element_counts[atom.GetAtomicNum()] = element_counts.get(atom.GetAtomicNum(), 0) + 1
     periodic = Chem.GetPeriodicTable()
     connection.execute("DELETE FROM compound_element WHERE compound_id = ?", (compound_id,))

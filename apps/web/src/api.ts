@@ -38,7 +38,11 @@ export async function generateRoutes(compoundId: string, targetMassG: number, ma
 }
 
 export async function fetchGraph(compoundId: string) {
-  return request<Graph>(`/api/graph/subgraph?compound_id=${encodeURIComponent(compoundId)}&depth=2`)
+  return fetchGraphNode(`compound:${compoundId}`)
+}
+
+export async function fetchGraphNode(nodeId: string) {
+  return request<Graph>(`/api/graph/neighbors/${encodeURIComponent(nodeId)}?direction=both`)
 }
 
 export async function fetchCoverage(query = '', status: CoverageStatus | '' = '') {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Register a Drive-backed Unlimited-OCR result as unreviewed patent evidence."""
+"""Register a Drive-backed OCR result as unreviewed patent evidence."""
 
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ except ModuleNotFoundError:
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROCESSED_ROOT = ROOT / "data" / "processed" / "ocr"
 MAX_PROCESSED_BYTES = 256 * 1024 * 1024
+DEFAULT_PROVIDER = "unlimited-ocr-colab"
+DEFAULT_MODEL = "baidu/Unlimited-OCR"
 
 
 def text_sha256(value: str) -> str:
@@ -33,9 +35,10 @@ def ingest_ocr_result(
     publication_number: str,
     source_document: Path,
     source_url: str | None = None,
-    model: str = "baidu/Unlimited-OCR",
+    model: str | None = None,
     source_document_sha256: str | None = None,
     processed_root: Path | None = None,
+    provider: str | None = None,
 ) -> dict:
     result_path = result_path.resolve()
     source_document = source_document.resolve()
@@ -60,6 +63,10 @@ def ingest_ocr_result(
     text = str(result.get("text") or "").strip()
     if not job_id or not text:
         raise ValueError("OCR result requires job_id and extracted text")
+    provider_name = str(provider or result.get("provider") or DEFAULT_PROVIDER).strip()
+    model_name = str(model or result.get("model") or DEFAULT_MODEL).strip()
+    if not provider_name or not model_name:
+        raise ValueError("OCR result requires provider and model")
     publication = publication_number.replace(" ", "").upper()
     if not db.execute(
         "SELECT 1 FROM patent_document WHERE publication_number = ?", (publication,)
@@ -68,7 +75,8 @@ def ingest_ocr_result(
 
     output_directory = result_path.parent
     source_artifacts = [
-        output_directory / name for name in ("result.json", "result.md", "result.txt")
+        output_directory / name
+        for name in ("result.json", "result.md", "result.txt", "pages.jsonl")
     ]
     total_bytes = sum(path.stat().st_size for path in source_artifacts if path.is_file())
     if total_bytes > MAX_PROCESSED_BYTES:
@@ -92,7 +100,7 @@ def ingest_ocr_result(
             finally:
                 partial.unlink(missing_ok=True)
     artifacts = {}
-    for name in ("result.json", "result.md", "result.txt"):
+    for name in ("result.json", "result.md", "result.txt", "pages.jsonl"):
         path = (local_directory or output_directory) / name
         if path.is_file():
             artifacts[name] = {
@@ -113,13 +121,13 @@ def ingest_ocr_result(
             "acceptance_gate": "human_review_required",
         }
     )
-    extraction_job_id = f"unlimited-ocr:{job_id}"
+    extraction_job_id = f"{provider_name}:{job_id}"
     db.execute(
         """INSERT INTO extraction_job
         (extraction_job_id, provider, model, prompt_sha256, input_sha256,
          response_sha256, source_url, raw_response_json, token_cost_json,
          status, review_status, created_at, completed_at)
-        VALUES (?, 'unlimited-ocr-colab', ?, ?, ?, ?, ?, ?, '{}',
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}',
                 'needs_review', 'unreviewed', ?, ?)
         ON CONFLICT(extraction_job_id) DO UPDATE SET
           response_sha256=excluded.response_sha256,
@@ -130,8 +138,9 @@ def ingest_ocr_result(
           completed_at=excluded.completed_at""",
         (
             extraction_job_id,
-            model,
-            text_sha256("unlimited-ocr-colab-v1"),
+            provider_name,
+            model_name,
+            text_sha256(f"{provider_name}-v1"),
             input_sha256,
             sha256_file(result_path),
             source_url,
@@ -162,7 +171,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-document-sha256")
     parser.add_argument("--processed-root", type=Path, default=DEFAULT_PROCESSED_ROOT)
     parser.add_argument("--source-url")
-    parser.add_argument("--model", default="baidu/Unlimited-OCR")
+    parser.add_argument("--provider")
+    parser.add_argument("--model")
     args = parser.parse_args(argv)
     db = connect(args.db.resolve(), args.schema.resolve())
     try:
@@ -175,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
             args.model,
             args.source_document_sha256,
             args.processed_root,
+            args.provider,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

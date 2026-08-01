@@ -12,6 +12,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 
+CHEMBL_CHEMICAL_MODALITIES = {
+    "small molecule": "small_molecule",
+    "inorganic small molecule": "inorganic_small_molecule",
+    "polymeric small molecule": "polymeric_small_molecule",
+    "oligosaccharide": "oligosaccharide",
+    "oligonucleotide": "oligonucleotide",
+}
 SURECHEMBL_FILES = (
     "compounds.parquet",
     "patent_compound_map.parquet",
@@ -74,10 +81,12 @@ def export_seeds(database: Path, output: Path) -> dict:
         yield from (
             dict(row)
             for row in db.execute(
-                """SELECT dc.drug_id, c.compound_id, c.inchi_key, c.connectivity_key
+                """SELECT dc.drug_id, min(c.compound_id) compound_id,
+                          c.inchi_key, c.connectivity_key
                    FROM drug_compound dc JOIN compound c USING (compound_id)
                    WHERE c.inchi_key IS NOT NULL OR c.connectivity_key IS NOT NULL
-                   ORDER BY dc.drug_id, c.compound_id"""
+                   GROUP BY dc.drug_id, c.inchi_key, c.connectivity_key
+                   ORDER BY dc.drug_id, compound_id"""
             )
         )
 
@@ -112,7 +121,9 @@ def export_chembl(chembl_sqlite: Path, output: Path) -> dict:
     for row in source.execute(
         """SELECT s.molregno, s.synonyms, s.syn_type
            FROM molecule_synonyms s JOIN molecule_dictionary md USING (molregno)
-           WHERE md.max_phase = 4 AND lower(md.molecule_type) = 'small molecule'"""
+           WHERE md.max_phase = 4 AND lower(md.molecule_type) IN ({})""".format(
+               ",".join("?" for _ in CHEMBL_CHEMICAL_MODALITIES)),
+        tuple(CHEMBL_CHEMICAL_MODALITIES),
     ):
         if row["synonyms"]:
             aliases.setdefault(int(row["molregno"]), []).append(
@@ -122,7 +133,7 @@ def export_chembl(chembl_sqlite: Path, output: Path) -> dict:
                 }
             )
     query = """
-        SELECT md.molregno, md.chembl_id, md.pref_name,
+        SELECT md.molregno, md.chembl_id, md.pref_name, md.molecule_type,
                cs.canonical_smiles, cs.standard_inchi, cs.standard_inchi_key,
                COALESCE(mh.parent_molregno, md.molregno) parent_molregno,
                COALESCE(parent.chembl_id, md.chembl_id) parent_chembl_id,
@@ -132,17 +143,18 @@ def export_chembl(chembl_sqlite: Path, output: Path) -> dict:
         LEFT JOIN molecule_hierarchy mh ON mh.molregno = md.molregno
         LEFT JOIN molecule_dictionary parent
           ON parent.molregno = COALESCE(mh.parent_molregno, md.molregno)
-        WHERE md.max_phase = 4 AND lower(md.molecule_type) = 'small molecule'
+        WHERE md.max_phase = 4 AND lower(md.molecule_type) IN ({})
         ORDER BY COALESCE(mh.parent_molregno, md.molregno),
                  md.molregno != COALESCE(mh.parent_molregno, md.molregno),
                  md.molregno
-    """
+    """.format(",".join("?" for _ in CHEMBL_CHEMICAL_MODALITIES))
 
     def records():
-        for row in source.execute(query):
+        for row in source.execute(query, tuple(CHEMBL_CHEMICAL_MODALITIES)):
             parent = row["parent_chembl_id"]
             yield {
                 "preferred_name": row["parent_name"],
+                "modality": CHEMBL_CHEMICAL_MODALITIES[row["molecule_type"].casefold()],
                 "aliases": aliases.get(int(row["molregno"]), []),
                 "identifiers": {"CHEMBL": parent},
                 "active_moiety_id": f"chembl-moiety:{parent}",

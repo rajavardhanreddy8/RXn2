@@ -1,1 +1,2 @@
 duckdb==1.5.5
+pymupdf==1.28.0

@@ -169,7 +169,7 @@ def test_catalogue_and_surechembl_pipeline(tmp_path):
     cloud_output.mkdir()
     cloud_result = cloud_output / "result.json"
     cloud_result.write_text(
-        '{"job_id":"job-cloud","status":"succeeded","text":"Cloud OCR text."}',
+        '{"job_id":"job-cloud","status":"succeeded","provider":"ocrmypdf","model":"tesseract","text":"Cloud OCR text."}',
         encoding="utf-8",
     )
     (cloud_output / "result.txt").write_text("Cloud OCR text.", encoding="utf-8")
@@ -184,8 +184,14 @@ def test_catalogue_and_surechembl_pipeline(tmp_path):
     assert cloud_ocr["status"] == "needs_review"
     assert db.execute(
         "SELECT input_sha256 FROM extraction_job WHERE extraction_job_id=?",
-        ("unlimited-ocr:job-cloud",),
+        ("ocrmypdf:job-cloud",),
     ).fetchone()[0] == "b" * 64
+    assert tuple(
+        db.execute(
+            "SELECT provider, model FROM extraction_job WHERE extraction_job_id=?",
+            ("ocrmypdf:job-cloud",),
+        ).fetchone()
+    ) == ("ocrmypdf", "tesseract")
     db.close()
 
 
@@ -394,6 +400,29 @@ def test_malformed_fda_release_is_atomic(tmp_path):
     db.close()
 
 
+def test_chembl_cloud_export_includes_large_chemical_modalities(tmp_path):
+    chembl = tmp_path / "chembl.sqlite"
+    make_chembl(chembl)
+    source = sqlite3.connect(chembl)
+    source.execute(
+        "INSERT INTO molecule_dictionary VALUES (?, ?, ?, ?, ?, ?)",
+        (2, "CHEMBL-LARGE", "EXAMPLE OLIGO", 4, "Oligonucleotide", 2026),
+    )
+    source.execute(
+        "INSERT INTO compound_structures VALUES (?, ?, ?, ?)",
+        (2, "CC", "InChI=1S/C2H6", "OTMSDBZUPAUEDD-UHFFFAOYSA-N"),
+    )
+    source.execute("INSERT INTO molecule_hierarchy VALUES (2, 2)")
+    source.commit()
+    source.close()
+    output = tmp_path / "catalogue.jsonl"
+    assert export_chembl(chembl, output)["catalogue_records"] == 2
+    records = [__import__("json").loads(line) for line in output.read_text().splitlines()]
+    assert {record["modality"] for record in records} == {
+        "small_molecule", "oligonucleotide"
+    }
+
+
 def test_cloud_preparation_round_trip_keeps_raw_parquet_out_of_local_db(tmp_path):
     chembl = tmp_path / "chembl.sqlite"
     make_chembl(chembl)
@@ -403,6 +432,14 @@ def test_cloud_preparation_round_trip_keeps_raw_parquet_out_of_local_db(tmp_path
     db = connect(tmp_path / "catalogue.sqlite", ROOT / "sql" / "schema.sql")
     register_sources(db, ROOT / "configs" / "sources.json")
     ingest_catalogue_jsonl(db, catalogue, "chembl_snapshot", "CHEMBL37")
+    duplicate = tmp_path / "duplicate-structure.jsonl"
+    duplicate.write_text(
+        '{"preferred_name":"Acetaminophen","identifiers":{"CHEMBL":"CHEMBL112"},'
+        '"compound":{"compound_id":"PUBCHEM:1983",'
+        '"inchi_key":"RZVAJINKPMORJF-UHFFFAOYSA-N"}}\n',
+        encoding="utf-8",
+    )
+    ingest_catalogue_jsonl(db, duplicate, "pubchem_bulk", "duplicate-structure")
     seeds = tmp_path / "seeds.jsonl"
     assert export_seeds(tmp_path / "catalogue.sqlite", seeds)["seed_records"] == 1
 

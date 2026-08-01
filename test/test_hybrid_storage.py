@@ -58,7 +58,7 @@ def test_capacity_respects_cache_cap_and_free_space_floor(tmp_path, monkeypatch)
 
 
 def test_stage_is_atomic_and_checksum_verified(tmp_path, monkeypatch):
-    current = policy(tmp_path)
+    current = policy(tmp_path, minimum_free_fraction=0)
     current.raw_root.mkdir(parents=True)
     source = current.raw_root / "source" / "release" / "data.zip"
     source.parent.mkdir(parents=True)

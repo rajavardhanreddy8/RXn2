@@ -473,6 +473,15 @@ CREATE TABLE IF NOT EXISTS reaction_instance (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS reaction_evidence_link (
+  reaction_id TEXT NOT NULL REFERENCES reaction_instance(reaction_id),
+  evidence_span_id TEXT NOT NULL REFERENCES evidence_span(evidence_span_id),
+  relationship_type TEXT NOT NULL CHECK (relationship_type IN ('primary_example', 'referenced_setup')),
+  review_status TEXT NOT NULL CHECK (review_status IN ('accepted', 'rejected', 'needs_review', 'unreviewed')),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (reaction_id, evidence_span_id, relationship_type)
+);
+
 CREATE TABLE IF NOT EXISTS reaction_participant (
   reaction_id TEXT NOT NULL REFERENCES reaction_instance(reaction_id),
   compound_id TEXT NOT NULL REFERENCES compound(compound_id),
@@ -593,6 +602,8 @@ CREATE TABLE IF NOT EXISTS extraction_job (
 CREATE INDEX IF NOT EXISTS idx_reaction_participant_compound_role
   ON reaction_participant(compound_id, role);
 CREATE INDEX IF NOT EXISTS idx_reaction_evidence ON reaction_instance(evidence_span_id);
+CREATE INDEX IF NOT EXISTS idx_reaction_evidence_link_span
+  ON reaction_evidence_link(evidence_span_id, reaction_id);
 CREATE INDEX IF NOT EXISTS idx_quote_compound_date ON material_quote(compound_id, observed_at);
 CREATE INDEX IF NOT EXISTS idx_hazard_compound ON hazard_classification(compound_id);
 CREATE INDEX IF NOT EXISTS idx_route_target ON route_candidate(target_compound_id, generated_at);
@@ -601,6 +612,11 @@ DROP VIEW IF EXISTS kg_edge;
 DROP VIEW IF EXISTS kg_node;
 
 CREATE VIEW kg_node AS
+SELECT CASE WHEN drug_id LIKE 'drug:%' THEN drug_id ELSE 'drug:' || drug_id END AS node_id,
+       'drug' AS node_type,
+       preferred_name AS label, drug_id AS record_id
+FROM drug_entity
+UNION ALL
 SELECT 'compound:' || compound_id AS node_id, 'compound' AS node_type,
        COALESCE(preferred_name, compound_id) AS label, compound_id AS record_id
 FROM compound
@@ -623,6 +639,12 @@ SELECT 'functional_group:' || functional_group_id, 'functional_group',
 FROM functional_group;
 
 CREATE VIEW kg_edge AS
+SELECT CASE WHEN drug_id LIKE 'drug:%' THEN drug_id ELSE 'drug:' || drug_id END AS source_id,
+       'compound:' || compound_id AS target_id,
+       relationship_type AS edge_type,
+       drug_id || ':compound:' || compound_id || ':' || relationship_type AS record_id
+FROM drug_compound WHERE review_status <> 'rejected'
+UNION ALL
 SELECT 'compound:' || compound_id AS source_id,
        'reaction:' || reaction_id AS target_id,
        role AS edge_type, reaction_id || ':' || compound_id || ':' || role AS record_id
@@ -632,9 +654,19 @@ SELECT 'reaction:' || reaction_id, 'compound:' || compound_id,
        'produced', reaction_id || ':' || compound_id || ':produced'
 FROM reaction_participant WHERE role = 'produced'
 UNION ALL
+SELECT 'patent:' || e.publication_number, 'reaction:' || l.reaction_id,
+       l.relationship_type,
+       l.reaction_id || ':evidence:' || l.evidence_span_id || ':' || l.relationship_type
+FROM reaction_evidence_link l
+JOIN evidence_span e ON e.evidence_span_id = l.evidence_span_id
+WHERE l.review_status <> 'rejected'
+UNION ALL
 SELECT 'patent:' || e.publication_number, 'reaction:' || r.reaction_id,
        'supports', r.reaction_id || ':evidence'
 FROM reaction_instance r JOIN evidence_span e ON e.evidence_span_id = r.evidence_span_id
+WHERE NOT EXISTS (
+  SELECT 1 FROM reaction_evidence_link l WHERE l.reaction_id = r.reaction_id
+)
 UNION ALL
 SELECT 'supplier:' || q.supplier_id, 'compound:' || q.compound_id,
        'quotes', q.quote_id

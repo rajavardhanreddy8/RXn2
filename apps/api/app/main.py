@@ -197,6 +197,21 @@ def catalogue_drug(drug_id: str) -> dict:
                LIMIT 500""",
             (drug_id,),
         )]
+        evidence_links = [dict(row) for row in db.execute(
+            """SELECT DISTINCT l.reaction_id, l.relationship_type,
+                      l.review_status, e.evidence_span_id,
+                      e.publication_number, e.section_type, e.paragraph_id,
+                      e.char_start, e.char_end, e.source_url,
+                      e.review_status evidence_review_status
+               FROM drug_compound dc
+               JOIN reaction_participant rp
+                 ON rp.compound_id = dc.compound_id AND rp.role = 'produced'
+               JOIN reaction_evidence_link l USING (reaction_id)
+               JOIN evidence_span e USING (evidence_span_id)
+               WHERE dc.drug_id = ?
+               ORDER BY l.reaction_id, l.relationship_type, e.evidence_span_id""",
+            (drug_id,),
+        )]
     result = dict(drug)
     result["coverage_details"] = json.loads(result["coverage_details"] or "{}")
     result.update({
@@ -205,6 +220,7 @@ def catalogue_drug(drug_id: str) -> dict:
         "compounds": compounds,
         "regulatory_products": products,
         "patent_candidates": patents,
+        "reaction_evidence_links": evidence_links,
     })
     return result
 
@@ -393,6 +409,224 @@ def graph_subgraph(compound_id: str = Query(...), depth: int = Query(default=2, 
         source, target = ((f"reaction:{item['reaction_id']}", f"compound:{item['compound_id']}") if item["role"] == "produced" else (f"compound:{item['compound_id']}", f"reaction:{item['reaction_id']}"))
         edges.append({"source": source, "target": target, "type": item["role"]})
     return {"nodes": list(nodes.values()), "edges": edges}
+
+
+@app.get("/api/graph/neighbors/{node_id}")
+def graph_neighbors(
+    node_id: str,
+    direction: str = Query(default="both", pattern="^(incoming|outgoing|both)$"),
+    limit: int = Query(default=200, ge=1, le=500),
+) -> dict:
+    """Return canonical directed edges while permitting traversal from either end."""
+    conditions = {
+        "incoming": ("target_id=?", (node_id,)),
+        "outgoing": ("source_id=?", (node_id,)),
+        "both": ("source_id=? OR target_id=?", (node_id, node_id)),
+    }
+    where, parameters = conditions[direction]
+    with connect() as db:
+        selected = db.execute(
+            "SELECT node_id, node_type, label, record_id FROM kg_node WHERE node_id=?",
+            (node_id,),
+        ).fetchone()
+        if not selected:
+            raise HTTPException(status_code=404, detail="Graph node not found")
+        rows = db.execute(
+            f"""SELECT source_id, target_id, edge_type, record_id FROM kg_edge
+                WHERE {where} ORDER BY edge_type, record_id LIMIT ?""",
+            (*parameters, limit + 1),
+        ).fetchall()
+        truncated = len(rows) > limit
+        rows = rows[:limit]
+        node_ids = {node_id}
+        for row in rows:
+            node_ids.update((row["source_id"], row["target_id"]))
+        placeholders = ",".join("?" for _ in node_ids)
+        nodes = db.execute(
+            f"""SELECT node_id, node_type, label, record_id FROM kg_node
+                WHERE node_id IN ({placeholders}) ORDER BY node_type, label""",
+            tuple(node_ids),
+        ).fetchall()
+    return {
+        "selected_node": node_id,
+        "direction": direction,
+        "nodes": [
+            {
+                "id": node["node_id"], "type": node["node_type"],
+                "label": node["label"], "record_id": node["record_id"],
+            }
+            for node in nodes
+        ],
+        "edges": [
+            {
+                "source": row["source_id"], "target": row["target_id"],
+                "type": row["edge_type"], "record_id": row["record_id"],
+                "traversed_from": "outgoing" if row["source_id"] == node_id else "incoming",
+            }
+            for row in rows
+        ],
+        "truncated": truncated,
+        "disclaimer": "Bidirectional navigation shows recorded, non-rejected relationships; route acceptance still requires chemistry review.",
+    }
+
+
+@app.get("/api/graph/drugs/{drug_id}")
+def drug_backtrack_graph(drug_id: str, depth: int = Query(default=4, ge=1, le=8)) -> dict:
+    """Backtrack recorded reactions and separately expose molecular composition."""
+    with connect() as db:
+        drug = db.execute(
+            "SELECT drug_id, preferred_name, review_status FROM drug_entity WHERE drug_id=?",
+            (drug_id,),
+        ).fetchone()
+        if not drug:
+            raise HTTPException(status_code=404, detail="Drug not found")
+        targets = db.execute(
+            """SELECT dc.compound_id, dc.relationship_type, dc.review_status
+               FROM drug_compound dc
+               WHERE dc.drug_id=? AND dc.review_status <> 'rejected'
+               ORDER BY dc.relationship_type, dc.compound_id""",
+            (drug_id,),
+        ).fetchall()
+        drug_node_id = drug_id if drug_id.startswith("drug:") else f"drug:{drug_id}"
+        nodes = {
+            drug_node_id: {
+                "id": drug_node_id, "type": "drug",
+                "label": drug["preferred_name"], "review_status": drug["review_status"],
+            }
+        }
+        edges: list[dict] = []
+        gaps: dict[tuple[str, str], dict] = {}
+        queue = [(row["compound_id"], 0) for row in targets]
+        for row in targets:
+            edges.append({
+                "source": drug_node_id, "target": f"compound:{row['compound_id']}",
+                "type": row["relationship_type"], "review_status": row["review_status"],
+            })
+        visited: dict[str, int] = {}
+        while queue:
+            compound_id, level = queue.pop(0)
+            if compound_id in visited and visited[compound_id] <= level:
+                continue
+            visited[compound_id] = level
+            compound = db.execute(
+                """SELECT c.compound_id, c.preferred_name, c.review_status,
+                          p.molecular_formula, p.molecular_weight
+                   FROM compound c LEFT JOIN compound_property p USING (compound_id)
+                   WHERE c.compound_id=?""",
+                (compound_id,),
+            ).fetchone()
+            if not compound:
+                gaps[(compound_id, "missing_compound")] = {
+                    "compound_id": compound_id, "reason": "missing_compound_record"
+                }
+                continue
+            nodes[f"compound:{compound_id}"] = {
+                "id": f"compound:{compound_id}", "type": "compound",
+                "label": compound["preferred_name"] or compound_id,
+                "review_status": compound["review_status"],
+                "molecular_formula": compound["molecular_formula"],
+                "molecular_weight": compound["molecular_weight"],
+            }
+            elements = db.execute(
+                """SELECT e.element_id, e.symbol, e.name, ce.atom_count
+                   FROM compound_element ce JOIN element e USING (element_id)
+                   WHERE ce.compound_id=? ORDER BY e.atomic_number""",
+                (compound_id,),
+            ).fetchall()
+            for element in elements:
+                element_id = f"element:{element['element_id']}"
+                nodes[element_id] = {
+                    "id": element_id, "type": "element", "label": element["symbol"],
+                    "name": element["name"],
+                }
+                edges.append({
+                    "source": f"compound:{compound_id}", "target": element_id,
+                    "type": "contains_element", "atom_count": element["atom_count"],
+                })
+            if not elements:
+                gaps[(compound_id, "structure")] = {
+                    "compound_id": compound_id, "reason": "structure_or_atom_counts_unavailable"
+                }
+            if level >= depth:
+                continue
+            reactions = db.execute(
+                """SELECT DISTINCT r.reaction_id, r.reaction_name,
+                          r.transformation_key, r.review_status, r.confidence
+                   FROM reaction_instance r
+                   JOIN reaction_participant p USING (reaction_id)
+                   WHERE p.compound_id=? AND p.role='produced'
+                     AND r.review_status <> 'rejected'
+                   ORDER BY r.review_status, r.confidence DESC, r.reaction_id""",
+                (compound_id,),
+            ).fetchall()
+            if not reactions:
+                gaps[(compound_id, "route")] = {
+                    "compound_id": compound_id,
+                    "reason": "no_evidence_backed_producing_reaction",
+                }
+                continue
+            for reaction in reactions:
+                reaction_id = reaction["reaction_id"]
+                nodes[f"reaction:{reaction_id}"] = {
+                    "id": f"reaction:{reaction_id}", "type": "reaction",
+                    "label": reaction["reaction_name"],
+                    "transformation_key": reaction["transformation_key"],
+                    "review_status": reaction["review_status"],
+                    "confidence": reaction["confidence"],
+                }
+                edges.append({
+                    "source": f"reaction:{reaction_id}",
+                    "target": f"compound:{compound_id}", "type": "produced",
+                    "review_status": reaction["review_status"],
+                })
+                evidence = db.execute(
+                    """SELECT l.relationship_type, l.review_status, e.evidence_span_id,
+                              e.publication_number, e.paragraph_id, e.char_start, e.char_end,
+                              p.title
+                       FROM reaction_evidence_link l
+                       JOIN evidence_span e USING (evidence_span_id)
+                       JOIN patent_document p USING (publication_number)
+                       WHERE l.reaction_id=? AND l.review_status <> 'rejected'
+                       ORDER BY l.relationship_type, e.evidence_span_id""",
+                    (reaction_id,),
+                ).fetchall()
+                for item in evidence:
+                    patent_id = f"patent:{item['publication_number']}"
+                    nodes[patent_id] = {
+                        "id": patent_id, "type": "patent",
+                        "label": item["title"] or item["publication_number"],
+                    }
+                    edges.append({
+                        "source": patent_id, "target": f"reaction:{reaction_id}",
+                        "type": item["relationship_type"],
+                        "review_status": item["review_status"],
+                        "evidence_span_id": item["evidence_span_id"],
+                        "location": {
+                            "page": item["paragraph_id"],
+                            "char_start": item["char_start"], "char_end": item["char_end"],
+                        },
+                    })
+                inputs = db.execute(
+                    """SELECT p.compound_id, p.role, p.stoichiometry
+                       FROM reaction_participant p
+                       WHERE p.reaction_id=? AND p.role IN ('consumed', 'reagent', 'catalyst')
+                       ORDER BY p.role, p.compound_id""",
+                    (reaction_id,),
+                ).fetchall()
+                for item in inputs:
+                    edges.append({
+                        "source": f"compound:{item['compound_id']}",
+                        "target": f"reaction:{reaction_id}", "type": item["role"],
+                        "stoichiometry": item["stoichiometry"],
+                        "review_status": reaction["review_status"],
+                    })
+                    queue.append((item["compound_id"], level + 1))
+    return {
+        "drug_id": drug_id, "depth": depth,
+        "nodes": list(nodes.values()), "edges": edges,
+        "coverage_gaps": list(gaps.values()),
+        "disclaimer": "Reaction traversal uses recorded evidence only; element edges describe composition, not manufacturing steps.",
+    }
 
 
 @app.post("/api/prices/import")

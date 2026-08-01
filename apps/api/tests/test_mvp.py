@@ -10,6 +10,7 @@ from apps.api.app.costing import evaluate_route, rank_evaluated
 from apps.api.app.main import app
 from apps.api.app.routes import generate_routes, resolve_compound
 from apps.api.app.seed import seed_demo
+from scripts.annotate_catalogue import annotate_catalogue
 
 
 @pytest.fixture()
@@ -48,6 +49,14 @@ def test_demo_graph_generates_two_deterministic_routes(local_database):
     assert len(first) == 2
     assert all(route["step_count"] == 1 for route in first)
     assert all(step["is_synthetic"] for route in first for step in route["steps"])
+
+
+def test_catalogue_annotation_accounts_for_every_compound(local_database):
+    with db.connect() as connection:
+        result = annotate_catalogue(connection)
+    assert result == {
+        "input": 9, "annotated": 4, "missing_structure": 5, "invalid_structure": 0
+    }
 
 
 def test_costing_uses_package_rounding_and_balanced_ranking(local_database):
@@ -91,6 +100,30 @@ def test_http_mvp_and_honest_benchmark_gap(local_database):
         assert generated.status_code == 200
         assert len(generated.json()["routes"]) == 2
 
+        graph = client.get("/api/graph/drugs/demo-drug:demo-target-1?depth=2")
+        assert graph.status_code == 200
+        payload = graph.json()
+        assert any(node["type"] == "drug" for node in payload["nodes"])
+        assert any(node["id"] == "drug:demo-drug:demo-target-1" for node in payload["nodes"])
+        assert any(node["type"] == "reaction" for node in payload["nodes"])
+        assert any(
+            edge["type"] == "contains_element" and edge.get("atom_count") == 7
+            for edge in payload["edges"]
+            if edge["source"] == "compound:DEMO-TARGET-1"
+        )
+        assert payload["coverage_gaps"]
+
+        neighbors = client.get(
+            "/api/graph/neighbors/compound:DEMO-TARGET-1?direction=both"
+        )
+        assert neighbors.status_code == 200
+        neighborhood = neighbors.json()
+        assert {edge["traversed_from"] for edge in neighborhood["edges"]} == {
+            "incoming", "outgoing"
+        }
+        assert any(edge["type"] == "produced" for edge in neighborhood["edges"])
+        assert any(edge["type"] == "contains_element" for edge in neighborhood["edges"])
+
         benchmark = client.post(
             "/api/routes/generate",
             json={"compound_id": "BENCH-APIXABAN", "target_mass_g": 1000, "base_currency": "USD"},
@@ -117,11 +150,40 @@ def test_http_mvp_and_honest_benchmark_gap(local_database):
 def test_graph_views_are_queryable(local_database):
     connection = sqlite3.connect(local_database)
     try:
+        connection.execute(
+            """INSERT INTO patent_document
+               (publication_number, country_code, kind_code, source_id, raw_record_json)
+               VALUES ('DEMO-PATENT-A1', 'WO', 'A1', 'synthetic_fixture', '{}')"""
+        )
+        for suffix in ("primary", "setup"):
+            connection.execute(
+                """INSERT INTO evidence_span
+                   (evidence_span_id, publication_number, source_id, artifact_sha256,
+                    section_type, paragraph_id, char_start, char_end, evidence_text,
+                    text_sha256, evidence_status, extraction_method, review_status,
+                    retrieved_at, license_code, redistribution_class)
+                   VALUES (?, 'DEMO-PATENT-A1', 'synthetic_fixture', ?, 'example', ?,
+                           0, 4, 'demo', ?, 'performed', 'fixture', 'unreviewed',
+                           '2026-07-31T00:00:00Z', 'CC0-1.0', 'permitted')""",
+                (f"DEMO-EVIDENCE-{suffix}", suffix[0] * 64, suffix, suffix[-1] * 64),
+            )
+        connection.executemany(
+            """INSERT INTO reaction_evidence_link
+               (reaction_id, evidence_span_id, relationship_type, review_status, created_at)
+               VALUES ('DEMO-RXN-A', ?, ?, 'unreviewed', '2026-07-31T00:00:00Z')""",
+            [
+                ("DEMO-EVIDENCE-primary", "primary_example"),
+                ("DEMO-EVIDENCE-setup", "referenced_setup"),
+            ],
+        )
         assert connection.execute("SELECT count(*) FROM kg_node WHERE node_type = 'reaction'").fetchone()[0] == 2
         assert connection.execute("SELECT count(*) FROM kg_edge WHERE edge_type = 'produced'").fetchone()[0] == 2
         assert connection.execute("SELECT count(*) FROM compound_element").fetchone()[0] > 0
         assert connection.execute("SELECT count(*) FROM compound_functional_group").fetchone()[0] > 0
         assert connection.execute("SELECT count(*) FROM kg_edge WHERE edge_type = 'contains_element'").fetchone()[0] > 0
         assert connection.execute("SELECT count(*) FROM kg_edge WHERE edge_type = 'has_functional_group'").fetchone()[0] > 0
+        assert connection.execute(
+            "SELECT count(*) FROM kg_edge WHERE edge_type IN ('primary_example', 'referenced_setup')"
+        ).fetchone()[0] == 2
     finally:
         connection.close()

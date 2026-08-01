@@ -45,6 +45,14 @@ DEFAULT_DB = ROOT / "data" / "curated" / "rxn2-production.sqlite"
 DEFAULT_SCHEMA = ROOT / "sql" / "schema.sql"
 DEFAULT_SOURCES = ROOT / "configs" / "sources.json"
 SMALL_MOLECULE = "small_molecule"
+CHEMBL_CHEMICAL_MODALITIES = {
+    "small molecule": SMALL_MOLECULE,
+    "inorganic small molecule": "inorganic_small_molecule",
+    "polymeric small molecule": "polymeric_small_molecule",
+    "oligosaccharide": "oligosaccharide",
+    "oligonucleotide": "oligonucleotide",
+}
+CHEMICAL_MODALITIES = frozenset(CHEMBL_CHEMICAL_MODALITIES.values())
 MATERIAL_FORMS = {
     "active_moiety",
     "salt",
@@ -315,18 +323,24 @@ def queue_source_record_candidates(
     return count
 
 
-def find_or_create_drug(db: sqlite3.Connection, preferred_name: str, source_id: str) -> str:
+def find_or_create_drug(
+    db: sqlite3.Connection,
+    preferred_name: str,
+    source_id: str,
+    identity_key: str | None = None,
+    modality: str = SMALL_MOLECULE,
+) -> str:
     normalized = normalize_name(preferred_name)
     if not normalized:
         raise ValueError("drug name cannot be empty")
-    drug_id = stable_id("drug", source_id, normalized)
+    drug_id = stable_id("drug", source_id, identity_key or normalized)
     matches = named_drug_ids(db, preferred_name) - {drug_id}
     db.execute(
         """INSERT INTO drug_entity (drug_id, preferred_name, modality, review_status)
            VALUES (?, ?, ?, 'unreviewed')
            ON CONFLICT(drug_id) DO UPDATE SET
              preferred_name=COALESCE(drug_entity.preferred_name, excluded.preferred_name)""",
-        (drug_id, preferred_name.strip(), SMALL_MOLECULE),
+        (drug_id, preferred_name.strip(), modality),
     )
     add_alias(db, drug_id, preferred_name, "preferred_name", source_id)
     queue_name_link_candidates(db, drug_id, preferred_name, matches, source_id)
@@ -669,19 +683,24 @@ def ingest_chembl(
         LEFT JOIN compound_structures cs ON cs.molregno = md.molregno
         LEFT JOIN molecule_hierarchy mh ON mh.molregno = md.molregno
         LEFT JOIN molecule_dictionary parent ON parent.molregno = COALESCE(mh.parent_molregno, md.molregno)
-        WHERE md.max_phase = 4 AND lower(md.molecule_type) = 'small molecule'
+        WHERE md.max_phase = 4 AND lower(md.molecule_type) IN ({})
         ORDER BY md.molregno
-    """
+    """.format(",".join("?" for _ in CHEMBL_CHEMICAL_MODALITIES))
     with atomic(db, "chembl_release"):
         release_id, _ = register_release(
             db, "chembl_snapshot", release, [artifact_path or chembl_path],
             "chembl-sqlite-v2",
         )
-        rows = source.execute(query)
+        rows = source.execute(query, tuple(CHEMBL_CHEMICAL_MODALITIES))
         molregno_to_drug: dict[int, str] = {}
         for row in rows:
             preferred = row["parent_name"] or row["pref_name"] or row["chembl_id"]
-            drug_id = find_or_create_drug(db, preferred, "chembl_snapshot")
+            drug_id = find_or_create_drug(
+                db,
+                preferred,
+                "chembl_snapshot",
+                modality=CHEMBL_CHEMICAL_MODALITIES[row["molecule_type"].casefold()],
+            )
             molregno_to_drug[int(row["molregno"])] = drug_id
             active_moiety_id = f"chembl-moiety:{row['parent_chembl_id']}"
             db.execute(
@@ -737,9 +756,9 @@ def ingest_chembl(
         synonym_query = """
         SELECT s.molregno, s.synonyms, s.syn_type
         FROM molecule_synonyms s JOIN molecule_dictionary md USING (molregno)
-        WHERE md.max_phase = 4 AND lower(md.molecule_type) = 'small molecule'
-    """
-        for row in source.execute(synonym_query):
+        WHERE md.max_phase = 4 AND lower(md.molecule_type) IN ({})
+    """.format(",".join("?" for _ in CHEMBL_CHEMICAL_MODALITIES))
+        for row in source.execute(synonym_query, tuple(CHEMBL_CHEMICAL_MODALITIES)):
             drug_id = molregno_to_drug.get(int(row["molregno"]))
             if drug_id and clean(row["synonyms"]):
                 add_alias(
@@ -804,6 +823,10 @@ def ingest_catalogue_jsonl(
                 preferred_name = clean(record.get("preferred_name"))
                 if not preferred_name:
                     raise ValueError(f"line {line_number}: preferred_name is required")
+                modality = clean(record.get("modality")) or SMALL_MOLECULE
+                if modality not in CHEMICAL_MODALITIES:
+                    raise ValueError(
+                        f"line {line_number}: unsupported chemical modality {modality!r}")
                 identifiers = record.get("identifiers", {})
                 if not isinstance(identifiers, dict):
                     raise ValueError(f"line {line_number}: identifiers must be an object")
@@ -812,7 +835,12 @@ def ingest_catalogue_jsonl(
                 if inchi_key and len(inchi_key) != 27:
                     raise ValueError(f"line {line_number}: inchi_key must contain 27 characters")
                 matched_id = matched_drug_id(db, inchi_key, identifiers)
-                require_compatible_name_match(db, preferred_name, inchi_key, matched_id)
+                exact_source_identity = any(
+                    namespace == "CHEMBL" and clean(values)
+                    for namespace, values in identifiers.items()
+                )
+                if not exact_source_identity:
+                    require_compatible_name_match(db, preferred_name, inchi_key, matched_id)
                 requires_existing = record.get("requires_existing_drug", False)
                 if not isinstance(requires_existing, bool):
                     raise ValueError(f"line {line_number}: requires_existing_drug must be boolean")
@@ -834,8 +862,26 @@ def ingest_catalogue_jsonl(
                         reason_counts["name_only_match_requires_review"] += 1
                     counts["excluded_rows"] += 1
                     continue
-                drug_id = attach_or_create_drug(db, preferred_name, source_id, matched_id)
+                if matched_id:
+                    drug_id = attach_or_create_drug(db, preferred_name, source_id, matched_id)
+                else:
+                    chembl_values = identifiers.get("CHEMBL")
+                    chembl_id = (
+                        chembl_values[0]
+                        if isinstance(chembl_values, list) and chembl_values
+                        else chembl_values
+                    )
+                    drug_id = find_or_create_drug(
+                        db,
+                        preferred_name,
+                        source_id,
+                        f"CHEMBL:{clean(chembl_id)}" if clean(chembl_id) else None,
+                        modality=modality,
+                    )
                 counts["drugs"] += 1
+                db.execute(
+                    "UPDATE drug_entity SET modality = ? WHERE drug_id = ?",
+                    (modality, drug_id))
                 for alias in record.get("aliases", []):
                     if isinstance(alias, str):
                         add_alias(db, drug_id, alias, "synonym", source_id)

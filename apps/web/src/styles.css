@@ -128,14 +128,17 @@ summary small { display: block; color: var(--muted); margin-top: 4px; font-weigh
 .alert { margin: 20px; padding: 14px; display: flex; gap: 12px; font-size: 12px; }
 .alert.error { background: #fae9e4; color: #8c3c28; border: 1px solid #efc2b7; }
 
-.graph { padding: 45px; display: grid; grid-template-columns: 1fr 45px 1fr; min-height: 650px; align-items: start; background-image: radial-gradient(#d8ded8 1px, transparent 1px); background-size: 18px 18px; }
+.graph { padding: 45px; display: grid; grid-template-columns: 1fr minmax(170px, .7fr) 1fr; gap: 28px; min-height: 650px; align-items: start; background-image: radial-gradient(#d8ded8 1px, transparent 1px); background-size: 18px 18px; }
 .graph-column { display: grid; gap: 11px; }
 .graph-column .eyebrow { margin-bottom: 6px; }
-.graph-node { display: flex; align-items: center; gap: 10px; padding: 12px; background: white; border: 1px solid var(--line); box-shadow: 0 4px 15px rgba(38,52,45,.05); font-size: 11px; }
+.graph-node { width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px; text-align: left; background: white; border: 1px solid var(--line); box-shadow: 0 4px 15px rgba(38,52,45,.05); font-size: 11px; }
+.graph-node b, .graph-node small { display: block; }
+.graph-node small { margin-top: 3px; color: var(--muted); text-transform: capitalize; }
 .node-symbol { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: var(--mint); color: var(--green); font: 500 9px 'DM Mono'; }
-.reaction-node { border-left: 3px solid var(--acid); }
-.reaction-node .node-symbol { background: var(--ink); color: var(--acid); }
-.graph-lines { display: flex; flex-direction: column; align-items: center; padding-top: 40px; gap: 24px; color: var(--green); }
+.graph-focus { padding-top: 38px; display: flex; align-items: center; gap: 8px; color: var(--green); }
+.graph-selected { border-left: 3px solid var(--acid); cursor: default; }
+.graph-note { color: var(--muted); font-size: 10px; }
+.graph-disclaimer { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 10px; }
 .graph-empty { padding: 80px; text-align: center; color: var(--muted); }
 
 .coverage-section { padding: 76px 6vw 90px; background: #f3f4ef; border-top: 1px solid var(--line); }

@@ -61,8 +61,12 @@ export type GenerateResponse = {
 }
 
 export type Graph = {
-  nodes: Array<{ id: string; type: 'compound' | 'reaction'; label: string }>
-  edges: Array<{ source: string; target: string; type: string }>
+  selected_node?: string
+  direction?: 'incoming' | 'outgoing' | 'both'
+  truncated?: boolean
+  disclaimer?: string
+  nodes: Array<{ id: string; type: string; label: string; record_id?: string }>
+  edges: Array<{ source: string; target: string; type: string; traversed_from?: 'incoming' | 'outgoing' }>
 }
 
 export type CoverageStatus =
