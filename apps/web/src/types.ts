@@ -129,3 +129,23 @@ export type AutomationStatus = {
   exceptions: AutomationJob[]
   recent_jobs: AutomationJob[]
 }
+
+export type ReviewQueueItem = {
+  rank: number
+  drug_id: string
+  drug_name: string
+  family_id: string
+  publication_number: string
+  title: string
+  country_code: string
+  publication_date: string | null
+  selection_rationale: string
+  next_action: string
+}
+
+export type ReviewQueueResponse = {
+  total: number
+  items: ReviewQueueItem[]
+  automatic_acceptance: boolean
+  message?: string
+}

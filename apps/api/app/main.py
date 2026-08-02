@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from scripts.build_pilot_queue import build_batch
+
 from .chemistry import standardize_smiles
 from .costing import evaluate_route, rank_evaluated
 from .db import connect, initialize, transaction
@@ -171,6 +173,17 @@ def catalogue_coverage(
             item[flag] = bool(item[flag])
         items.append(item)
     return {"total": total, "limit": limit, "offset": offset, "status_counts": summary, "items": items}
+
+
+@app.get("/api/review-queue")
+def review_queue(limit: int = Query(default=50, ge=10, le=100)) -> dict:
+    """Return ranked candidates only; never a route acceptance decision."""
+    with connect() as db:
+        try:
+            items = build_batch(db, limit)
+        except ValueError as error:
+            return {"total": 0, "items": [], "message": str(error), "automatic_acceptance": False}
+    return {"total": len(items), "items": items, "automatic_acceptance": False}
 
 
 @app.get("/api/catalogue/drugs/{drug_id}")

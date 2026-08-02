@@ -85,6 +85,10 @@ def test_http_mvp_and_honest_benchmark_gap(local_database):
         assert automation.status_code == 200
         assert automation.json()["automatic_acceptance"] is False
 
+        queue = client.get("/api/review-queue")
+        assert queue.status_code == 200
+        assert queue.json()["automatic_acceptance"] is False
+
 
         coverage = client.get("/api/catalogue/coverage")
         assert coverage.status_code == 200
