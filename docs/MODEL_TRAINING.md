@@ -12,6 +12,29 @@ Training comes after the evidence dataset passes curation and leakage gates.
 
 The first useful models reduce curator workload. They should not pretend to replace process-development judgment.
 
+## Route prediction and patent baseline
+
+Evidence routes and model hypotheses are separate records. A hypothesis never
+becomes an accepted reaction or route merely because it scores well.
+
+Route prediction proposes complete, precedent-grounded hypotheses and compares
+them with held-out patented routes under the same target, form, batch, cost
+date, and safety constraints. Evaluate on patent-family, active-moiety, near-
+duplicate, and temporal holdouts. Compare:
+
+- complete-route recovery and top-k route recall;
+- step count and cumulative predicted yield;
+- raw-material cost coverage and cost per target mass;
+- process mass intensity, solvent burden, hazards, and operational complexity;
+- scale precedent and uncertainty for every proposed step.
+
+A claimed improvement requires deterministic structure/stereochemistry and atom-
+balance checks, precedent links for every proposed step, no failed hard safety
+constraint, and at least one improved comparable metric with none worsened.
+Otherwise the outcome is `mixed`, `not_improved`, `insufficient_data`, or
+`blocked_validation`. Only laboratory execution can establish that a genuinely
+new route works as predicted.
+
 ## Pretraining and weak supervision
 
 - Lowe USPTO reactions: reaction/paragraph retrieval and reaction representation; deduplicate by patent family, paragraph, and reaction signature.

@@ -583,6 +583,34 @@ CREATE TABLE IF NOT EXISTS route_evaluation (
   scorer_version TEXT NOT NULL
 );
 
+-- Model proposals never enter the accepted evidence graph. They become
+-- comparable only after deterministic validation and precedent grounding.
+CREATE TABLE IF NOT EXISTS route_hypothesis (
+  hypothesis_id TEXT PRIMARY KEY,
+  target_compound_id TEXT NOT NULL REFERENCES compound(compound_id),
+  dataset_version_id TEXT REFERENCES dataset_version(dataset_version_id),
+  model_version TEXT NOT NULL,
+  generated_at TEXT NOT NULL,
+  route_json TEXT NOT NULL,
+  validation_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN (
+    'predicted', 'needs_validation', 'eligible_for_comparison', 'rejected'
+  ))
+);
+
+CREATE TABLE IF NOT EXISTS route_benchmark_result (
+  comparison_id TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL REFERENCES route_hypothesis(hypothesis_id),
+  baseline_route_id TEXT NOT NULL REFERENCES process_route(route_id),
+  verdict TEXT NOT NULL CHECK (verdict IN (
+    'improved', 'mixed', 'not_improved', 'insufficient_data', 'blocked_validation'
+  )),
+  metrics_json TEXT NOT NULL,
+  compared_at TEXT NOT NULL,
+  scorer_version TEXT NOT NULL,
+  UNIQUE (hypothesis_id, baseline_route_id, scorer_version)
+);
+
 CREATE TABLE IF NOT EXISTS extraction_job (
   extraction_job_id TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
@@ -630,6 +658,8 @@ CREATE INDEX IF NOT EXISTS idx_reaction_evidence_link_span
 CREATE INDEX IF NOT EXISTS idx_quote_compound_date ON material_quote(compound_id, observed_at);
 CREATE INDEX IF NOT EXISTS idx_hazard_compound ON hazard_classification(compound_id);
 CREATE INDEX IF NOT EXISTS idx_route_target ON route_candidate(target_compound_id, generated_at);
+CREATE INDEX IF NOT EXISTS idx_hypothesis_target ON route_hypothesis(target_compound_id, generated_at);
+CREATE INDEX IF NOT EXISTS idx_benchmark_baseline ON route_benchmark_result(baseline_route_id, verdict);
 
 DROP VIEW IF EXISTS kg_edge;
 DROP VIEW IF EXISTS kg_node;
