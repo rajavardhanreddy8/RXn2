@@ -17,6 +17,7 @@ from scripts.bulk_pipeline import (
     refresh_coverage,
     register_release,
     register_sources,
+    surechembl_family,
 )
 from scripts.catalogue_converters import convert
 from scripts.cloud_prepare import export_chembl, export_seeds, export_surechembl
@@ -24,6 +25,14 @@ from scripts.ingest_ocr_result import ingest_ocr_result
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_missing_surechembl_family_uses_publication_fallback():
+    assert surechembl_family(-1, "WO-1-A1") == (
+        "surechembl-publication:WO-1-A1", "publication_fallback"
+    )
+    assert surechembl_family(None, "WO-2-A1")[0] == "surechembl-publication:WO-2-A1"
+    assert surechembl_family(99, "WO-3-A1") == ("surechembl:99", "source_reported")
 
 
 def make_fda_zip(path: Path) -> None:

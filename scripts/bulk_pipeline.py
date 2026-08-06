@@ -1002,6 +1002,13 @@ def duckdb_path(path: Path) -> str:
     return path.resolve().as_posix().replace("'", "''")
 
 
+def surechembl_family(family_id: object, publication: str) -> tuple[str, str]:
+    value = clean(family_id)
+    if value and value != "-1":
+        return f"surechembl:{value}", "source_reported"
+    return f"surechembl-publication:{publication}", "publication_fallback"
+
+
 def upsert_patent_candidate(
     db: sqlite3.Connection,
     record: dict[str, object],
@@ -1029,17 +1036,12 @@ def upsert_patent_candidate(
     ).fetchone():
         raise ValueError(f"candidate references an unknown drug/compound link: {drug_id}")
 
-    family_id = record.get("family_id")
-    family = (
-        f"surechembl:{family_id}"
-        if family_id is not None
-        else f"surechembl-publication:{publication}"
-    )
+    family, family_type = surechembl_family(record.get("family_id"), publication)
     db.execute(
         """INSERT OR IGNORE INTO patent_family
         (family_id, family_type, source_id, confidence)
-        VALUES (?, 'source_reported', 'surechembl_bulk', 0.9)""",
-        (family,),
+        VALUES (?, ?, 'surechembl_bulk', 0.9)""",
+        (family, family_type),
     )
     db.execute(
         """INSERT INTO patent_document

@@ -135,7 +135,9 @@ def build_queue(
             raise ValueError(f"pilot drug has no patent candidates: {drug_id}")
         best_by_family: dict[str, sqlite3.Row] = {}
         for row in candidates:
-            family_id = row["family_id"] or f"publication:{row['publication_number']}"
+            family_id = row["family_id"]
+            if not family_id or family_id == "surechembl:-1":
+                family_id = f"publication:{row['publication_number']}"
             current = best_by_family.get(family_id)
             if current is None or candidate_score(
                 row, aliases[drug_id]

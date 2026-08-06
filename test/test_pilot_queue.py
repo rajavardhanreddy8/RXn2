@@ -25,7 +25,7 @@ def test_pilot_queue_prefers_target_specific_process_title():
         INSERT INTO patent_document VALUES
           ('WO-1-A1', 'Process for preparing EXAMPLEDRUG', '2020-01-01', 'WO'),
           ('WO-2-A1', 'New process synthesis intermediate manufacturing', '2026-01-01', 'WO');
-        INSERT INTO patent_family_member VALUES ('family:1', 'WO-1-A1'), ('family:2', 'WO-2-A1');
+        INSERT INTO patent_family_member VALUES ('surechembl:-1', 'WO-1-A1'), ('family:2', 'WO-2-A1');
         INSERT INTO patent_candidate VALUES
           ('drug:test', 'compound:test', 'WO-1-A1', 'ttl', 'exact_structure', .98, 'needs_review'),
           ('drug:test', 'compound:test', 'WO-2-A1', 'clms', 'exact_structure', .98, 'needs_review');

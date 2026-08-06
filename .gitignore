@@ -22,6 +22,7 @@ data/automation/
 # Rebuildable database/export artifacts.
 data/curated/*.sqlite
 data/curated/*.sqlite-*
+data/curated/backups/
 data/processed/*
 data/manifests/*
 !data/processed/.gitkeep
