@@ -56,6 +56,10 @@ export async function fetchAutomationStatus() {
   return request<AutomationStatus>('/api/automation/status')
 }
 
+export async function fetchProvisionalGraph() {
+  return request<{ nodes?: unknown[]; edges?: unknown[]; provisional_reaction_count?: number; validation_counts?: Record<string, number> }>('/api/graph/provisional?limit=1')
+}
+
 export async function fetchReviewQueue() {
   return request<ReviewQueueResponse>('/api/review-queue')
 }

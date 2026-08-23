@@ -5,6 +5,7 @@ import RouteCard from './RouteCard'
 import CoveragePanel from './CoveragePanel'
 import AutomationPanel from './AutomationPanel'
 import ReviewQueuePanel from './ReviewQueuePanel'
+import ExtractionDashboard from './ExtractionDashboard'
 import type { GenerateResponse, Graph } from './types'
 
 const benchmarks = ['Acetaminophen', 'Ibuprofen', 'Metformin', 'Sildenafil', 'Apixaban']
@@ -141,6 +142,8 @@ export default function App() {
         </section>
 
         <AutomationPanel />
+
+        <ExtractionDashboard />
 
         <CoveragePanel />
 

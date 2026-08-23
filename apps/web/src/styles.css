@@ -232,4 +232,23 @@ footer { padding: 20px 5vw; display: flex; justify-content: space-between; backg
 .automation-panel details { margin-top: 20px; }
 .automation-panel summary { cursor: pointer; font-weight: 700; }
 .automation-panel li { margin: 8px 0; overflow-wrap: anywhere; }
-@media (max-width: 760px) { .automation-stats { grid-template-columns: 1fr 1fr; } }
+.extraction-dashboard { padding: 65px 6vw; background: #eaf1ed; border-top: 1px solid var(--line); }
+.dashboard-heading { display: flex; justify-content: space-between; gap: 30px; align-items: start; }
+.dashboard-heading h2 { margin: 8px 0 12px; }
+.dashboard-heading p { color: var(--muted); font-size: 12px; }
+.run-state { white-space: nowrap; border: 1px solid var(--line); padding: 10px 14px; font: 500 10px 'DM Mono'; text-transform: uppercase; }
+.run-state i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #89948e; margin-right: 8px; }
+.run-state.active i { background: var(--green); box-shadow: 0 0 0 4px #d4eadb; }
+.dashboard-progress { margin-top: 28px; background: white; border: 1px solid var(--line); padding: 20px; }
+.dashboard-progress > div:first-child { display: flex; justify-content: space-between; align-items: baseline; }
+.dashboard-progress span, .dashboard-progress small { color: var(--muted); font-size: 11px; }
+.dashboard-progress strong { font-size: 24px; }
+.progress-track { height: 8px; background: #dce7e0; margin: 15px 0 8px; overflow: hidden; }
+.progress-track i { display: block; height: 100%; background: var(--green); transition: width .4s ease; }
+.dashboard-stats { display: grid; grid-template-columns: repeat(6, 1fr); margin-top: 12px; border: 1px solid var(--line); background: white; }
+.dashboard-stats div { padding: 18px; border-right: 1px solid var(--line); }
+.dashboard-stats div:last-child { border-right: 0; }
+.dashboard-stats span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.dashboard-stats strong { display: block; margin-top: 8px; font-size: 22px; }
+.dashboard-note { margin-top: 12px; color: var(--muted); font-size: 11px; }
+@media (max-width: 760px) { .automation-stats, .dashboard-stats { grid-template-columns: 1fr 1fr; } .dashboard-stats div:nth-child(2n) { border-right: 0; } .dashboard-heading { flex-direction: column; } }
