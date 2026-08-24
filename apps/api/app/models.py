@@ -62,7 +62,7 @@ class PriceImportRequest(BaseModel):
 class QroqExtractionRequest(BaseModel):
     source_text: str = Field(min_length=20, max_length=200_000)
     source_url: str | None = None
-    model: str = "llama-3.3-70b-versatile"
+    model: str = "openai/gpt-oss-20b"
     data_classification: Literal["public", "proprietary"] = "public"
     allow_external_processing: bool = False
 
@@ -71,3 +71,8 @@ class QroqExtractionRequest(BaseModel):
         if self.data_classification == "proprietary" and not self.allow_external_processing:
             raise ValueError("Proprietary text requires explicit allow_external_processing consent")
         return self
+
+
+class RelationExtractionRequest(BaseModel):
+    evidence_span_ids: list[str] = Field(min_length=1, max_length=1000)
+    provider_mode: Literal["auto", "groq", "openrouter"] = "auto"

@@ -17,6 +17,25 @@ from typing import Callable
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+
+def load_env_file(path: Path) -> None:
+    """Load simple KEY=VALUE entries without replacing process settings."""
+    if not path.is_file():
+        return
+    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = (part.strip() for part in line.split("=", 1))
+        if not key.replace("_", "a").isalnum() or key[0].isdigit():
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
+load_env_file(ROOT / ".env")
+
 from scripts.annotate_catalogue import annotate_catalogue
 from scripts.build_pilot_queue import build_batch, write_queue
 from scripts.bulk_pipeline import (

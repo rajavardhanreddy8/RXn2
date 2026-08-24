@@ -627,6 +627,95 @@ CREATE TABLE IF NOT EXISTS extraction_job (
   completed_at TEXT
 );
 
+-- LLM and deterministic extraction results remain outside the reviewed graph.
+-- Exact evidence offsets and validation reasons make every provisional edge auditable.
+CREATE TABLE IF NOT EXISTS relation_candidate (
+  relation_candidate_id TEXT PRIMARY KEY,
+  extraction_job_id TEXT NOT NULL REFERENCES extraction_job(extraction_job_id),
+  evidence_span_id TEXT NOT NULL REFERENCES evidence_span(evidence_span_id),
+  subject_type TEXT NOT NULL CHECK (subject_type IN (
+    'patent', 'procedure', 'compound', 'condition', 'quantity', 'outcome'
+  )),
+  subject_text TEXT NOT NULL,
+  subject_char_start INTEGER CHECK (subject_char_start IS NULL OR subject_char_start >= 0),
+  subject_char_end INTEGER CHECK (
+    subject_char_end IS NULL OR
+    (subject_char_start IS NOT NULL AND subject_char_end >= subject_char_start)
+  ),
+  subject_compound_id TEXT REFERENCES compound(compound_id),
+  predicate TEXT NOT NULL CHECK (predicate IN (
+    'describes', 'mentions', 'consumed', 'produced', 'reagent', 'catalyst',
+    'solvent', 'workup', 'has_condition', 'has_quantity', 'has_outcome'
+  )),
+  object_type TEXT NOT NULL CHECK (object_type IN (
+    'patent', 'procedure', 'compound', 'condition', 'quantity', 'outcome'
+  )),
+  object_text TEXT NOT NULL,
+  object_char_start INTEGER CHECK (object_char_start IS NULL OR object_char_start >= 0),
+  object_char_end INTEGER CHECK (
+    object_char_end IS NULL OR
+    (object_char_start IS NOT NULL AND object_char_end >= object_char_start)
+  ),
+  object_compound_id TEXT REFERENCES compound(compound_id),
+  attributes_json TEXT NOT NULL DEFAULT '{}',
+  model_confidence REAL NOT NULL CHECK (model_confidence >= 0 AND model_confidence <= 1),
+  is_explicit INTEGER NOT NULL CHECK (is_explicit IN (0, 1)),
+  validation_status TEXT NOT NULL CHECK (validation_status IN (
+    'validated', 'unresolved', 'rejected'
+  )),
+  validation_reason TEXT NOT NULL,
+  review_status TEXT NOT NULL CHECK (review_status IN ('needs_review', 'rejected')),
+  created_at TEXT NOT NULL
+);
+
+-- Rebuildable, deterministic projection used by the large graph explorer.
+-- Curated source tables remain authoritative; these rows may be deleted and rebuilt.
+CREATE TABLE IF NOT EXISTS graph_node (
+    node_id TEXT PRIMARY KEY,
+    node_type TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    source_table TEXT NOT NULL,
+    review_status TEXT NOT NULL DEFAULT 'needs_review',
+    properties_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_graph_node_type_label
+ON graph_node(node_type, label COLLATE NOCASE);
+
+CREATE INDEX IF NOT EXISTS idx_graph_node_record
+ON graph_node(source_table, record_id);
+
+CREATE TABLE IF NOT EXISTS graph_edge (
+    edge_id TEXT PRIMARY KEY,
+    source_node_id TEXT NOT NULL,
+    target_node_id TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    source_table TEXT NOT NULL,
+    source_record_id TEXT NOT NULL,
+    validation_status TEXT NOT NULL DEFAULT 'validated',
+    review_status TEXT NOT NULL DEFAULT 'needs_review',
+    confidence REAL,
+    evidence_span_id TEXT,
+    properties_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_graph_edge_source
+ON graph_edge(source_node_id, predicate, target_node_id);
+
+CREATE INDEX IF NOT EXISTS idx_graph_edge_target
+ON graph_edge(target_node_id, predicate, source_node_id);
+
+CREATE INDEX IF NOT EXISTS idx_graph_edge_type_status
+ON graph_edge(predicate, validation_status, review_status);
+
+CREATE INDEX IF NOT EXISTS idx_relation_candidate_evidence
+  ON relation_candidate(evidence_span_id, validation_status, predicate);
+CREATE INDEX IF NOT EXISTS idx_relation_candidate_compounds
+  ON relation_candidate(subject_compound_id, object_compound_id, predicate);
+CREATE INDEX IF NOT EXISTS idx_relation_candidate_job
+  ON relation_candidate(extraction_job_id, review_status);
+
 CREATE TABLE IF NOT EXISTS pipeline_job (
   pipeline_job_id TEXT PRIMARY KEY,
   job_type TEXT NOT NULL,

@@ -160,8 +160,17 @@ def ema(row: dict[str, str]) -> list[dict]:
     status = value(
         row, "medicine_status", "authorisation status", "authorization status", "status"
     )
-    if status and "authoris" not in normalized(status) and "authoriz" not in normalized(status):
-        raise LookupError("not_authorised")
+    normalized_status = normalized(status or "")
+    if "withdraw" in normalized_status:
+        marketing_status = "withdrawn"
+    elif "discontinu" in normalized_status:
+        marketing_status = "discontinued"
+    elif "authoris" in normalized_status or "authoriz" in normalized_status:
+        marketing_status = "active"
+    elif status:
+        raise LookupError("unsupported_medicine_status")
+    else:
+        marketing_status = "unknown"
     medicine_type = normalized(value(row, "medicine type", "product type", "category") or "")
     explicit_biologic = any(
         normalized(value(row, field) or "") in {"1", "true", "yes"}
@@ -195,6 +204,7 @@ def ema(row: dict[str, str]) -> list[dict]:
         "application_number": product_number,
         "product_number": product_number,
         "trade_name": product_name,
+        "marketing_status": marketing_status,
         "approval_date": value(
             row,
             "marketing_authorisation_date",

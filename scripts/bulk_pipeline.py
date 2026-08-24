@@ -1300,7 +1300,7 @@ def ingest_surechembl(
     }
 
 
-def refresh_coverage(db: sqlite3.Connection) -> dict[str, int]:
+def refresh_coverage(db: sqlite3.Connection, *, commit: bool = True) -> dict[str, int]:
     refreshed_at = now()
     rows = db.execute(
         """WITH
@@ -1308,10 +1308,24 @@ def refresh_coverage(db: sqlite3.Connection) -> dict[str, int]:
           SELECT drug_id, count(DISTINCT publication_number) patent_count
           FROM patent_candidate WHERE review_status <> 'rejected' GROUP BY drug_id
         ),
-        example_stats AS (
-          SELECT pc.drug_id, count(DISTINCT e.evidence_span_id) example_count
+        example_links AS (
+          SELECT pc.drug_id, e.evidence_span_id
           FROM patent_candidate pc JOIN evidence_span e USING (publication_number)
-          WHERE e.review_status <> 'rejected' GROUP BY pc.drug_id
+          WHERE pc.review_status <> 'rejected' AND e.review_status <> 'rejected'
+          UNION
+          SELECT pc.drug_id, e.evidence_span_id
+          FROM patent_candidate pc
+          JOIN patent_family_member candidate_member
+            ON candidate_member.publication_number = pc.publication_number
+          JOIN patent_family_member evidence_member
+            ON evidence_member.family_id = candidate_member.family_id
+          JOIN evidence_span e
+            ON e.publication_number = evidence_member.publication_number
+          WHERE pc.review_status <> 'rejected' AND e.review_status <> 'rejected'
+        ),
+        example_stats AS (
+          SELECT drug_id, count(DISTINCT evidence_span_id) example_count
+          FROM example_links GROUP BY drug_id
         ),
         route_stats AS (
           SELECT dc.drug_id,
@@ -1401,7 +1415,8 @@ def refresh_coverage(db: sqlite3.Connection) -> dict[str, int]:
             ),
         )
         status_counts[status] = status_counts.get(status, 0) + 1
-    db.commit()
+    if commit:
+        db.commit()
     return status_counts
 
 

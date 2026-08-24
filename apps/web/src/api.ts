@@ -56,8 +56,100 @@ export async function fetchAutomationStatus() {
   return request<AutomationStatus>('/api/automation/status')
 }
 
-export async function fetchProvisionalGraph() {
-  return request<{ nodes?: unknown[]; edges?: unknown[]; provisional_reaction_count?: number; validation_counts?: Record<string, number> }>('/api/graph/provisional?limit=1')
+export async function fetchProvisionalGraph(limit = 1) {
+  return request<{ nodes?: unknown[]; edges?: unknown[]; provisional_reaction_count?: number; validation_counts?: Record<string, number> }>(`/api/graph/provisional?limit=${limit}`)
+}
+
+export async function fetchLargeGraphStats() {
+  return request<LargeGraphStats>('/api/graph/stats')
+}
+
+export async function fetchLargeGraphOverview(nodeType = '', statuses: string[] = ['validated', 'unresolved', 'rejected'], direction = 'both', depth = 1) {
+  const parameters = new URLSearchParams({ validation_statuses: statuses.join(','), direction, depth: String(depth) })
+  if (nodeType) parameters.set('node_type', nodeType)
+  return request<LargeGraphOverview>(`/api/graph/overview?${parameters}`)
+}
+
+export async function searchLargeGraph(query: string, nodeType = '') {
+  const parameters = new URLSearchParams({ query, limit: '30' })
+  if (nodeType) parameters.set('node_type', nodeType)
+  return request<{ items: LargeGraphNode[] }>(`/api/graph/search?${parameters}`)
+}
+
+export async function fetchLargeGraphNeighborhood(nodeId: string, depth: number, direction: string, statuses: string[]) {
+  const parameters = new URLSearchParams({
+    depth: String(depth), node_limit: '2000', edge_limit: '5000', direction,
+    validation_statuses: statuses.join(','),
+  })
+  return request<LargeGraphNeighborhood>(`/api/graph/neighborhood/${encodeURIComponent(nodeId)}?${parameters}`)
+}
+
+export async function fetchLargeRouteGraph(statuses: string[]) {
+  const parameters = new URLSearchParams({ validation_statuses: statuses.join(',') })
+  return request<LargeGraphNeighborhood>(`/api/graph/routes?${parameters}`)
+}
+
+export async function findLargeGraphPath(source: string, target: string, statuses: string[]) {
+  const parameters = new URLSearchParams({ source, target, max_depth: '6', validation_statuses: statuses.join(',') })
+  return request<{ found: boolean; nodes: string[]; edges: LargeGraphEdge[]; reason?: string }>(`/api/graph/path?${parameters}`)
+}
+
+export async function fetchMoleculeStructure(compoundId: string) {
+  return request<MoleculeStructure>(`/api/chemistry/structure/${encodeURIComponent(compoundId)}`)
+}
+
+export type LargeGraphNode = {
+  node_id: string
+  node_type: string
+  label: string
+  review_status: string
+  source_table?: string
+  record_id?: string
+  properties_json?: string
+}
+
+export type LargeGraphEdge = {
+  edge_id: string
+  source_node_id: string
+  target_node_id: string
+  predicate: string
+  validation_status: string
+  review_status: string
+  confidence?: number | null
+  evidence_span_id?: string | null
+  source_table?: string
+  source_record_id?: string
+  properties_json?: string
+}
+
+export type LargeGraphStats = {
+  node_count: number
+  edge_count: number
+  nodes_by_type: Array<{ node_type: string; count: number }>
+  edges_by_type: Array<{ predicate: string; validation_status: string; review_status: string; count: number }>
+}
+
+export type LargeGraphOverview = {
+  nodes: Array<{ id: string; label: string; count: number }>
+  edges: Array<{ source: string; target: string; predicate: string; validation_status: string; count: number }>
+}
+
+export type MoleculeStructure = {
+  compound_id: string
+  preferred_name?: string | null
+  molecular_formula?: string | null
+  molecular_weight?: number | null
+  inchi_key?: string | null
+  smiles: string
+  atoms: Array<{ id: number; symbol: string; atomic_number: number; x: number; y: number; aromatic: boolean; formal_charge: number; implicit_hydrogens: number }>
+  bonds: Array<{ source: number; target: number; order: number; aromatic: boolean }>
+}
+
+export type LargeGraphNeighborhood = {
+  selected_node: string
+  nodes: LargeGraphNode[]
+  edges: LargeGraphEdge[]
+  truncated: boolean
 }
 
 export async function fetchReviewQueue() {

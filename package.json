@@ -17,6 +17,7 @@
     "storage:check": "docker compose run --rm api python scripts/hybrid_storage.py check",
     "automation:run": "python -B scripts/local_automation.py run",
     "automation:status": "python -B scripts/local_automation.py status",
+    "epo:pilot": "python -B scripts/acquire_epo_ops.py",
     "automation:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_local_automation.ps1",
     "catalogue:init": "docker compose run --rm api python scripts/bulk_pipeline.py init",
     "catalogue:coverage": "docker compose run --rm api python scripts/bulk_pipeline.py refresh-coverage",

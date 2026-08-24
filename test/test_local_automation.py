@@ -1,10 +1,23 @@
 import json
+import os
 import sqlite3
 
 import fitz
 
 from scripts.annotate_catalogue import seed_periodic_table
-from scripts.local_automation import extract_embedded_text, run_job
+from scripts.local_automation import extract_embedded_text, load_env_file, run_job
+
+
+def test_env_file_loads_without_overriding_process(tmp_path, monkeypatch):
+    monkeypatch.setenv("RXN2_EXISTING", "process")
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "# fixture\nRXN2_EXISTING=file\nRXN2_TEST_ENV_KEY='test-value'\n",
+        encoding="utf-8",
+    )
+    load_env_file(env_file)
+    assert os.environ["RXN2_EXISTING"] == "process"
+    assert os.environ["RXN2_TEST_ENV_KEY"] == "test-value"
 
 
 def test_local_job_is_idempotent(tmp_path):

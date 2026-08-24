@@ -251,4 +251,60 @@ footer { padding: 20px 5vw; display: flex; justify-content: space-between; backg
 .dashboard-stats span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; }
 .dashboard-stats strong { display: block; margin-top: 8px; font-size: 22px; }
 .dashboard-note { margin-top: 12px; color: var(--muted); font-size: 11px; }
+.provisional-graph-panel { padding: 65px 6vw; background: #fffdf8; border-top: 1px solid var(--line); }
+.graph-panel-heading { display: flex; justify-content: space-between; gap: 32px; align-items: start; }
+.graph-panel-heading h2 { margin: 8px 0 12px; }
+.graph-panel-heading p { color: var(--muted); font-size: 12px; max-width: 620px; }
+.graph-totals { display: grid; grid-template-columns: auto auto; gap: 4px 12px; font: 11px 'DM Mono'; color: var(--muted); white-space: nowrap; }
+.graph-totals b { color: var(--ink); font-size: 17px; text-align: right; }
+.graph-legend { display: flex; gap: 18px; align-items: center; margin-top: 25px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+.graph-legend i { width: 9px; height: 9px; display: inline-block; border-radius: 50%; margin-right: 6px; }
+.graph-legend .compound { background: #2b7a57; }.graph-legend .procedure { background: #d98922; }.graph-legend .patent { background: #5b75aa; }
+.graph-legend button { margin-left: auto; border: 1px solid var(--line); background: white; padding: 7px 10px; cursor: pointer; font: 10px 'DM Mono'; }
+.network-wrap { height: min(58vw, 500px); min-height: 340px; margin-top: 16px; border: 1px solid var(--line); background: radial-gradient(circle at center, #f5f2e8, #edf3ee); overflow: hidden; }
+.network-wrap svg { display: block; width: 100%; height: 100%; }
+.network-wrap .edge { stroke: #9cb1a4; stroke-width: .32; opacity: .55; }.network-wrap .edge.rejected { stroke: #be755d; stroke-dasharray: 1.4 1.4; }.network-wrap .edge.unresolved { stroke: #b9a46b; stroke-dasharray: .8 .9; }
+.network-node { cursor: pointer; outline: none; }.network-node circle { stroke: white; stroke-width: .8; transition: r .18s; }.network-node:hover circle, .network-node:focus circle { stroke: var(--ink); stroke-width: 1.1; }
+.graph-selection { display: flex; gap: 12px; padding: 13px 0 0; font-size: 11px; color: var(--muted); }.graph-selection b { color: var(--ink); }
 @media (max-width: 760px) { .automation-stats, .dashboard-stats { grid-template-columns: 1fr 1fr; } .dashboard-stats div:nth-child(2n) { border-right: 0; } .dashboard-heading { flex-direction: column; } }
+@media (max-width: 760px) { .graph-panel-heading { flex-direction: column; }.network-wrap { height: 92vw; min-height: 300px; }.graph-legend button { margin-left: 0; } }
+
+.large-graph-explorer { padding: 65px 4vw; background: #f4f7f3; border-top: 1px solid var(--line); }
+.large-graph-heading { display: flex; justify-content: space-between; gap: 24px; align-items: start; }
+.large-graph-heading h2 { margin: 8px 0 10px; font-size: 32px; }
+.large-graph-heading p { color: var(--muted); font-size: 12px; max-width: 760px; }
+.large-graph-heading button, .large-graph-toolbar button, .graph-path-bar button, .graph-path-actions button { border: 1px solid var(--ink); background: var(--ink); color: white; padding: 10px 13px; cursor: pointer; font: 500 10px 'DM Mono'; text-transform: uppercase; }
+.graph-view-switch { display: flex; gap: 6px; }.graph-view-switch button { background: white; color: var(--ink); }.graph-view-switch button.active { background: var(--ink); color: white; }
+.large-graph-toolbar { display: grid; grid-template-columns: minmax(330px, 2fr) 1fr 1fr 100px; gap: 8px; margin-top: 25px; }
+.large-graph-toolbar form { display: flex; }
+.large-graph-toolbar input, .large-graph-toolbar select, .graph-path-bar input { width: 100%; min-width: 0; border: 1px solid var(--line); background: white; padding: 10px 12px; font-size: 12px; }
+.large-graph-toolbar select:disabled { opacity: .45; cursor: not-allowed; background: #edf1ee; }
+.large-graph-toolbar form input { border-right: 0; }
+.large-graph-statuses { display: flex; gap: 18px; margin: 12px 0; font: 500 10px 'DM Mono'; text-transform: uppercase; }
+.large-graph-statuses label { cursor: pointer; }
+.graph-search-results { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0; max-height: 210px; overflow: auto; }
+.graph-search-results button { text-align: left; border: 1px solid var(--line); background: white; padding: 10px; cursor: pointer; }
+.graph-search-results b, .graph-search-results small { display: block; }
+.graph-search-results small { color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+.large-graph-stage { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 620px; border: 1px solid var(--line); background: white; }
+.sigma-host { min-width: 0; min-height: 620px; background: radial-gradient(circle at center, #f8faf7, #e7eee9); }
+.large-graph-stage aside { padding: 20px; border-left: 1px solid var(--line); overflow: auto; }
+.large-graph-stage aside h3 { margin: 14px 0 6px; font-size: 18px; overflow-wrap: anywhere; }
+.large-graph-stage aside p { color: var(--muted); font-size: 11px; }
+.large-graph-stage dl { margin: 18px 0; }
+.large-graph-stage dt { color: var(--muted); font: 500 9px 'DM Mono'; text-transform: uppercase; }
+.large-graph-stage dd { margin: 4px 0 12px; font-size: 11px; overflow-wrap: anywhere; }
+.large-graph-stage aside a { display: block; margin-top: 8px; color: var(--green); font-size: 11px; font-weight: 700; }
+.graph-path-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.evidence-edge { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.evidence-edge b, .evidence-edge span, .evidence-edge small { display: block; }
+.evidence-edge b { font-size: 11px; }.evidence-edge span, .evidence-edge small { color: var(--muted); font-size: 9px; margin-top: 3px; overflow-wrap: anywhere; }
+.molecule-preview { margin: 18px 0; padding: 12px; border: 1px solid var(--line); background: #fbfcfa; }
+.molecule-preview svg { display: block; width: 100%; max-width: 250px; margin: 8px auto; background: white; border: 1px solid #e3e8e4; }
+.molecule-preview .molecule-bond { stroke: #26352e; stroke-linecap: round; }.molecule-preview .aromatic-bond { stroke: #6e7b73; stroke-dasharray: 3 2; }
+.molecule-preview .atom { fill: #f5f8f6; stroke: #26352e; stroke-width: 1.5; }.molecule-preview .atom-O { fill: #f8e5df; stroke: #b04d3a; }.molecule-preview .atom-N { fill: #e2ebf8; stroke: #41689c; }.molecule-preview .atom-S { fill: #fbf0d3; stroke: #9c7527; }.molecule-preview .atom-Cl, .molecule-preview .atom-F, .molecule-preview .atom-Br, .molecule-preview .atom-I { fill: #e1f2e6; stroke: #28724b; }
+.molecule-preview text { font: 700 10px 'DM Mono'; fill: #17231d; pointer-events: none; }.molecule-preview p { margin: 5px 0; text-align: center; color: var(--ink); }.molecule-preview code { display: block; overflow-wrap: anywhere; font-size: 9px; color: var(--muted); }.molecule-unavailable { border: 1px dashed var(--line); padding: 10px; }
+.graph-path-bar { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 8px; align-items: center; margin-top: 10px; }
+.large-graph-message { margin-top: 10px; color: var(--muted); font: 500 10px 'DM Mono'; text-transform: uppercase; }
+@media (max-width: 900px) { .large-graph-toolbar { grid-template-columns: 1fr 1fr; }.large-graph-stage { grid-template-columns: 1fr; }.large-graph-stage aside { border-left: 0; border-top: 1px solid var(--line); }.graph-search-results { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .large-graph-explorer { padding: 45px 18px; }.large-graph-heading { flex-direction: column; }.large-graph-toolbar, .graph-search-results, .graph-path-bar { grid-template-columns: 1fr; }.graph-path-bar span { display: none; }.sigma-host { min-height: 460px; }.large-graph-stage { min-height: 460px; } }

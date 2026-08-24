@@ -6,6 +6,7 @@ import CoveragePanel from './CoveragePanel'
 import AutomationPanel from './AutomationPanel'
 import ReviewQueuePanel from './ReviewQueuePanel'
 import ExtractionDashboard from './ExtractionDashboard'
+import LargeGraphExplorer from './LargeGraphExplorer'
 import type { GenerateResponse, Graph } from './types'
 
 const benchmarks = ['Acetaminophen', 'Ibuprofen', 'Metformin', 'Sildenafil', 'Apixaban']
@@ -71,7 +72,7 @@ export default function App() {
           <span className="brand-mark">S</span>
           <span><b>ScaleUp</b><small>GRAPH</small></span>
         </a>
-        <nav><a className="active" href="#explorer">Route explorer</a><a href="#coverage">Coverage</a><a href="#review-queue">Review queue</a><a href="#automation">Automation</a><a href="#principles">Methods</a></nav>
+        <nav><a className="active" href="#explorer">Route explorer</a><a href="#large-graph">Large graph</a><a href="#coverage">Coverage</a><a href="#review-queue">Review queue</a><a href="#automation">Automation</a><a href="#principles">Methods</a></nav>
         <span className="local-status"><i /> Local evidence store</span>
       </header>
 
@@ -144,6 +145,8 @@ export default function App() {
         <AutomationPanel />
 
         <ExtractionDashboard />
+
+        <LargeGraphExplorer />
 
         <CoveragePanel />
 

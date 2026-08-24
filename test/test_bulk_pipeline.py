@@ -269,6 +269,20 @@ def test_ema_converter_preserves_product_and_excludes_biologics(tmp_path):
     assert record["requires_existing_drug"] is True
 
 
+def test_ema_converter_retains_withdrawn_products(tmp_path):
+    source = tmp_path / "ema.csv"
+    source.write_text(
+        "Medicine name,Active substance,Product number,Authorisation status,Medicine type\n"
+        "Former tablets,Example drug,EMA-2,Authorisation withdrawn,Human medicine\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "ema.jsonl"
+    report = convert("ema", source, output, tmp_path / "ema-report.json")
+    record = __import__("json").loads(output.read_text(encoding="utf-8"))
+
+    assert report["accepted_rows"] == 1
+    assert record["regulatory_products"][0]["marketing_status"] == "withdrawn"
+
 def test_ema_json_enriches_only_an_existing_small_molecule(tmp_path):
     source = tmp_path / "ema.json"
     source.write_text(

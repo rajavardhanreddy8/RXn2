@@ -6,11 +6,12 @@ from datetime import UTC, datetime
 
 try:
     from rdkit import Chem, rdBase
-    from rdkit.Chem import Descriptors, rdMolDescriptors
+    from rdkit.Chem import Descriptors, rdDepictor, rdMolDescriptors
 except ImportError:  # Allows the non-chemistry modules to be reviewed without RDKit.
     Chem = None
     rdBase = None
     Descriptors = None
+    rdDepictor = None
     rdMolDescriptors = None
 
 
@@ -28,6 +29,36 @@ class StructureRecord:
 
     def as_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class ProvisionalReactionValidation:
+    status: str
+    reason: str
+    atom_mapping_status: str = "pending"
+    reaction_difference_status: str = "pending"
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+def validate_provisional_reaction(
+    consumed_smiles: list[str], product_smiles: str | None,
+) -> ProvisionalReactionValidation:
+    """Validate only known structures; mapping/balance stay explicit future gates."""
+    if not consumed_smiles or not product_smiles:
+        return ProvisionalReactionValidation("unresolved", "missing_resolved_structure")
+    if Chem is None:
+        return ProvisionalReactionValidation("unresolved", "rdkit_unavailable")
+    try:
+        inputs = [Chem.MolToSmiles(Chem.MolFromSmiles(value), canonical=True, isomericSmiles=True)
+                  for value in consumed_smiles]
+        product = Chem.MolToSmiles(Chem.MolFromSmiles(product_smiles), canonical=True, isomericSmiles=True)
+    except Exception:
+        return ProvisionalReactionValidation("rejected", "unparseable_resolved_structure")
+    if product in inputs:
+        return ProvisionalReactionValidation("rejected", "self_transformation")
+    return ProvisionalReactionValidation("validated", "structure_parse_passed")
 
 
 def standardize_smiles(smiles: str) -> StructureRecord:
@@ -54,6 +85,31 @@ def standardize_smiles(smiles: str) -> StructureRecord:
         toolkit_version=rdBase.rdkitVersion,
         computed_at=datetime.now(UTC).isoformat(),
     )
+
+
+def molecule_graph(smiles: str) -> dict:
+    """Return a deterministic 2D atom-and-bond graph for a stored molecule."""
+    if Chem is None or rdDepictor is None:
+        raise RuntimeError("RDKit is required to render molecular structures")
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        raise ValueError("SMILES could not be parsed by RDKit")
+    rdDepictor.Compute2DCoords(mol, canonOrient=True, clearConfs=True)
+    conformer = mol.GetConformer()
+    atoms = []
+    for atom in mol.GetAtoms():
+        point = conformer.GetAtomPosition(atom.GetIdx())
+        atoms.append({
+            "id": atom.GetIdx(), "symbol": atom.GetSymbol(), "atomic_number": atom.GetAtomicNum(),
+            "x": round(float(point.x), 5), "y": round(float(point.y), 5),
+            "aromatic": atom.GetIsAromatic(), "formal_charge": atom.GetFormalCharge(),
+            "implicit_hydrogens": atom.GetTotalNumHs(),
+        })
+    bonds = [{
+        "source": bond.GetBeginAtomIdx(), "target": bond.GetEndAtomIdx(),
+        "order": float(bond.GetBondTypeAsDouble()), "aromatic": bond.GetIsAromatic(),
+    } for bond in mol.GetBonds()]
+    return {"smiles": Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True), "atoms": atoms, "bonds": bonds}
 
 
 def normalize_name(value: str) -> str:

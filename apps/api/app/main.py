@@ -6,22 +6,34 @@ import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from scripts.build_pilot_queue import build_batch
 
-from .chemistry import standardize_smiles
+from .chemistry import molecule_graph, standardize_smiles
 from .costing import evaluate_route, rank_evaluated
 from .db import connect, initialize, transaction
 from .models import (
     PriceImportRequest,
     QroqExtractionRequest,
+    RelationExtractionRequest,
     RouteCompareRequest,
     RouteGenerateRequest,
     TargetResolveRequest,
 )
 from .qroq import extract
+from .relations import enqueue_relations, provisional_graph
+from .graph_projection import (
+    export_graph,
+    graph_neighborhood,
+    graph_overview,
+    graph_path,
+    graph_route_map,
+    graph_search,
+    graph_stats,
+)
+from .provisional_review import build_provisional_review_queue
 from .routes import compound_by_id, generate_routes, resolve_compound
 from .seed import seed_demo
 
@@ -185,6 +197,13 @@ def review_queue(limit: int = Query(default=50, ge=10, le=100)) -> dict:
             return {"total": 0, "items": [], "message": str(error), "automatic_acceptance": False}
     return {"total": len(items), "items": items, "automatic_acceptance": False}
 
+
+@app.get("/api/review-queue/provisional")
+def provisional_review_queue(limit: int = Query(default=50, ge=1, le=1000)) -> dict:
+    """Rank provisional evidence completeness; returned records are never route approvals."""
+    with connect() as db:
+        items = build_provisional_review_queue(db, limit)
+    return {"total": len(items), "items": items, "automatic_acceptance": False}
 
 @app.get("/api/catalogue/drugs/{drug_id}")
 def catalogue_drug(drug_id: str) -> dict:
@@ -705,3 +724,145 @@ async def qroq_extraction(request: QroqExtractionRequest) -> dict:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(status_code=502, detail=f"Extraction failed: {error}") from error
+
+
+@app.post("/api/extraction/relations")
+def relation_extraction_enqueue(request: RelationExtractionRequest) -> dict:
+    try:
+        return enqueue_relations(request.evidence_span_ids, request.provider_mode)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/extraction/relations/{job_id}")
+def relation_extraction_status(job_id: str) -> dict:
+    with connect() as db:
+        job = db.execute(
+            """SELECT pipeline_job_id, job_type, input_identity, status, attempt_count,
+                      queued_at, started_at, completed_at, result_json, error_text
+               FROM pipeline_job WHERE pipeline_job_id=?
+                 AND job_type='relation_extraction'""",
+            (job_id,),
+        ).fetchone()
+    if not job:
+        raise HTTPException(status_code=404, detail="Relation extraction job not found")
+    payload = dict(job)
+    payload["result"] = json.loads(payload.pop("result_json"))
+    payload["automatic_acceptance"] = False
+    return payload
+
+
+@app.get("/api/graph/provisional")
+def graph_provisional(
+    publication_number: str | None = None,
+    validation_status: str | None = Query(
+        default=None, pattern="^(validated|unresolved|rejected)$"
+    ),
+    limit: int = Query(default=5000, ge=1, le=50_000),
+) -> dict:
+    return provisional_graph(publication_number, validation_status, limit)
+
+
+@app.get("/api/graph/stats")
+def large_graph_stats() -> dict:
+    return graph_stats()
+
+
+@app.get("/api/graph/overview")
+def large_graph_overview(
+    node_type: str | None = Query(default=None, max_length=80),
+    validation_statuses: str = Query(default="validated,unresolved,rejected"),
+    direction: str = Query(default="both", pattern="^(incoming|outgoing|both)$"),
+    depth: int = Query(default=1, ge=1, le=3),
+) -> dict:
+    return graph_overview(node_type, _graph_statuses(validation_statuses), direction, depth)
+
+
+@app.get("/api/graph/search")
+def large_graph_search(
+    query: str = Query(min_length=1, max_length=200),
+    node_type: str | None = Query(default=None, max_length=80),
+    limit: int = Query(default=25, ge=1, le=100),
+) -> dict:
+    return {"items": graph_search(query, node_type, limit), "automatic_acceptance": False}
+
+
+@app.get("/api/graph/routes")
+def large_route_graph(
+    validation_statuses: str = Query(default="validated,unresolved"),
+    collapsed: bool = Query(default=True),
+) -> dict:
+    return graph_route_map(_graph_statuses(validation_statuses), collapsed)
+
+
+@app.get("/api/chemistry/structure/{compound_id:path}")
+def compound_structure(compound_id: str) -> dict:
+    """Actual RDKit atom/bond structure for a curated compound only."""
+    with connect() as db:
+        row = db.execute(
+            """SELECT c.compound_id,c.preferred_name,coalesce(cp.standardized_smiles,c.smiles) smiles,
+                      cp.molecular_formula,cp.molecular_weight,c.inchi_key
+                 FROM compound c LEFT JOIN compound_property cp ON cp.compound_id=c.compound_id
+                 WHERE c.compound_id=?""", (compound_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Curated compound not found")
+    if not row["smiles"]:
+        raise HTTPException(status_code=422, detail="This compound has no stored molecular structure")
+    try:
+        graph = molecule_graph(row["smiles"])
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"compound_id": row["compound_id"], "preferred_name": row["preferred_name"],
+            "molecular_formula": row["molecular_formula"], "molecular_weight": row["molecular_weight"],
+            "inchi_key": row["inchi_key"], **graph}
+
+
+def _graph_statuses(value: str) -> set[str]:
+    allowed = {"validated", "unresolved", "rejected"}
+    statuses = {part.strip() for part in value.split(",") if part.strip()}
+    if not statuses or not statuses <= allowed:
+        raise HTTPException(status_code=422, detail="Unknown graph validation status")
+    return statuses
+
+
+@app.get("/api/graph/neighborhood/{node_id:path}")
+def large_graph_neighborhood(
+    node_id: str,
+    depth: int = Query(default=1, ge=1, le=3),
+    node_limit: int = Query(default=2000, ge=1, le=2000),
+    edge_limit: int = Query(default=5000, ge=1, le=5000),
+    validation_statuses: str = Query(default="validated,unresolved"),
+    direction: str = Query(default="both", pattern="^(incoming|outgoing|both)$"),
+) -> dict:
+    result = graph_neighborhood(
+        node_id, depth, node_limit, edge_limit, _graph_statuses(validation_statuses), direction
+    )
+    if not result["nodes"]:
+        raise HTTPException(status_code=404, detail="Graph node not found")
+    return result
+
+
+@app.get("/api/graph/path")
+def large_graph_path(
+    source: str = Query(min_length=1, max_length=300),
+    target: str = Query(min_length=1, max_length=300),
+    max_depth: int = Query(default=4, ge=1, le=8),
+    validation_statuses: str = Query(default="validated"),
+) -> dict:
+    return graph_path(source, target, max_depth, _graph_statuses(validation_statuses))
+
+
+@app.get("/api/graph/export")
+def large_graph_export(
+    node_id: str = Query(min_length=1, max_length=300),
+    depth: int = Query(default=1, ge=1, le=3),
+    format: str = Query(default="jsonl", pattern="^(jsonl|graphml)$"),
+) -> Response:
+    body = export_graph(node_id, depth, format)
+    media_type = "application/x-ndjson" if format == "jsonl" else "application/graphml+xml"
+    extension = "jsonl" if format == "jsonl" else "graphml"
+    return Response(
+        body, media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="rxn2-graph.{extension}"'},
+    )
