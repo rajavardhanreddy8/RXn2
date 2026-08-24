@@ -4,7 +4,7 @@ import forceAtlas2 from 'graphology-layout-forceatlas2'
 import Sigma from 'sigma'
 import {
   fetchLargeGraphNeighborhood, fetchLargeGraphOverview, fetchLargeGraphStats,
-  fetchLargeRouteGraph, fetchMoleculeStructure, findLargeGraphPath, searchLargeGraph,
+  fetchLargeRouteGraph, fetchMoleculeStructure, findLargeGraphPath, isHostedGraph, searchLargeGraph,
 } from './api'
 import type { LargeGraphEdge, LargeGraphNeighborhood, LargeGraphNode, LargeGraphOverview, LargeGraphStats, MoleculeStructure } from './api'
 
@@ -79,7 +79,7 @@ export default function LargeGraphExplorer() {
     if (display || viewMode !== 'routes') return
     fetchLargeRouteGraph(statuses).then((graph) => {
       setRouteDisplay(graph)
-      setMessage(`Whole evidence route network · ${graph.nodes.length.toLocaleString()} materials/procedures · ${graph.edges.length.toLocaleString()} transformations`)
+      setMessage(`Whole evidence route network · ${graph.nodes.length.toLocaleString()} materials · ${graph.edges.length.toLocaleString()} transformations`)
       setError('')
     }).catch((problem) => setError(problem instanceof Error ? problem.message : 'Route graph is unavailable.'))
   }, [statuses, display, viewMode])
@@ -192,7 +192,7 @@ export default function LargeGraphExplorer() {
     {results.length > 0 && <div className="graph-search-results">{results.map((node) => <button key={node.node_id} onClick={() => void openNode(node.node_id)}><b>{node.label}</b><small>{pretty(node.node_type)} · {node.node_id}</small></button>)}</div>}
     <div className="large-graph-stage"><div ref={container} className="sigma-host" /><aside>
       <span className="panel-label">Selection</span>
-      {selected ? <><h3>{selected.label}</h3><p>{pretty(selected.node_type)} · {selected.review_status}</p>{selected.node_id.startsWith('compound:') && <MoleculePreview compoundId={selected.node_id.slice('compound:'.length)} />}<dl><dt>Node ID</dt><dd>{selected.node_id}</dd><dt>Direct relations</dt><dd>{selectedEdges.length}</dd></dl><div className="graph-path-actions"><button onClick={() => setPathStart(selected.node_id)}>Set path start</button><button onClick={() => setPathEnd(selected.node_id)}>Set path end</button></div><a href={`/api/graph/export?node_id=${encodeURIComponent(selected.node_id)}&depth=${depth}&format=graphml`}>Export GraphML</a><a href={`/api/graph/export?node_id=${encodeURIComponent(selected.node_id)}&depth=${depth}&format=jsonl`}>Export JSONL</a>{selectedEdges.slice(0, 8).map((edge) => <div className="evidence-edge" key={edge.edge_id}><b>{pretty(edge.predicate)}</b><span>{edge.validation_status}</span><small>{edge.evidence_span_id || edge.source_table}</small></div>)}</> : <p>Select a curated compound from search to see its real atom-and-bond structure, then inspect connected route evidence.</p>}
+      {selected ? <><h3>{selected.label}</h3><p>{pretty(selected.node_type)} · {selected.review_status}</p>{selected.node_id.startsWith('compound:') && <MoleculePreview compoundId={selected.node_id.slice('compound:'.length)} />}<dl><dt>Node ID</dt><dd>{selected.node_id}</dd><dt>Direct relations</dt><dd>{selectedEdges.length}</dd></dl><div className="graph-path-actions"><button onClick={() => setPathStart(selected.node_id)}>Set path start</button><button onClick={() => setPathEnd(selected.node_id)}>Set path end</button></div>{!isHostedGraph && <><a href={`/api/graph/export?node_id=${encodeURIComponent(selected.node_id)}&depth=${depth}&format=graphml`}>Export GraphML</a><a href={`/api/graph/export?node_id=${encodeURIComponent(selected.node_id)}&depth=${depth}&format=jsonl`}>Export JSONL</a></>}{selectedEdges.slice(0, 8).map((edge) => <div className="evidence-edge" key={edge.edge_id}><b>{pretty(edge.predicate)}</b><span>{edge.validation_status}</span><small>{edge.evidence_span_id || edge.source_table}</small></div>)}</> : <p>Select a curated compound from search to see its real atom-and-bond structure, then inspect connected route evidence.</p>}
     </aside></div>
     <div className="graph-path-bar"><input value={pathStart} onChange={(event) => setPathStart(event.target.value)} placeholder="Path start node ID" /><span>→</span><input value={pathEnd} onChange={(event) => setPathEnd(event.target.value)} placeholder="Path end node ID" /><button onClick={() => void runPath()}>Find path</button></div>
     <div className="large-graph-message">{message} · provisional evidence remains review-gated</div>

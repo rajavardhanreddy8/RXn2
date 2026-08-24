@@ -1,7 +1,36 @@
 import type { AutomationStatus, CoverageResponse, CoverageStatus, GenerateResponse, Graph, ReviewQueueResponse } from './types'
 
+const hostedGraphEndpoint = import.meta.env.VITE_RXN2_HOSTED_API?.replace(/\/$/, '')
+
+export const isHostedGraph = Boolean(hostedGraphEndpoint)
+
+function hostedRequestUrl(localUrl: string) {
+  if (!hostedGraphEndpoint) return localUrl
+  const parsed = new URL(localUrl, window.location.origin)
+  const parameters = new URLSearchParams(parsed.search)
+  const operation = (() => {
+    if (parsed.pathname === '/api/graph/stats') return 'stats'
+    if (parsed.pathname === '/api/graph/overview') return 'overview'
+    if (parsed.pathname === '/api/graph/routes') return 'routes'
+    if (parsed.pathname === '/api/graph/search') return 'search'
+    if (parsed.pathname.startsWith('/api/chemistry/structure/')) {
+      parameters.set('compound_id', decodeURIComponent(parsed.pathname.split('/').at(-1) || ''))
+      return 'structure'
+    }
+    if (parsed.pathname.startsWith('/api/graph/neighborhood/')) {
+      parameters.set('node_id', decodeURIComponent(parsed.pathname.split('/').at(-1) || ''))
+      return 'neighborhood'
+    }
+    if (parsed.pathname === '/api/graph/path') return 'path'
+    return ''
+  })()
+  if (!operation) return localUrl
+  parameters.set('op', operation)
+  return `${hostedGraphEndpoint}?${parameters}`
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetch(hostedRequestUrl(url), {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   })
