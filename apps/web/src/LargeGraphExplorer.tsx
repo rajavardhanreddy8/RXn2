@@ -157,12 +157,13 @@ export default function LargeGraphExplorer() {
   }
 
   async function openNode(nodeId: string) {
-    if (viewMode === 'routes' && routeDisplay) {
-      const node = routeDisplay.nodes.find((item) => item.node_id === nodeId)
+    if ((viewMode === 'routes' && routeDisplay) || (viewMode === 'full' && fullDisplay)) {
+      const current = viewMode === 'full' ? fullDisplay! : routeDisplay!
+      const node = current.nodes.find((item) => item.node_id === nodeId)
       setSelected(node || results.find((item) => item.node_id === nodeId) || null)
-      const direct = routeDisplay.edges.filter((edge) => edge.source_node_id === nodeId || edge.target_node_id === nodeId)
+      const direct = current.edges.filter((edge) => edge.source_node_id === nodeId || edge.target_node_id === nodeId)
       setSelectedEdges(direct); setResults([])
-      setMessage(direct.length ? `${direct.length} direct route transformations` : 'No consumed/produced route connection is currently resolved for this compound')
+      setMessage(direct.length ? `${direct.length} direct graph relations` : 'No direct relation is recorded for this node')
       return
     }
     try {
@@ -195,7 +196,7 @@ export default function LargeGraphExplorer() {
         const offsets: number[] = []
         for (let offset = first.items.length; offset < first.total; offset += first.limit) offsets.push(offset)
         let cursor = 0
-        const workers = Array.from({ length: Math.min(4, offsets.length) }, async () => {
+        const workers = Array.from({ length: Math.min(8, offsets.length) }, async () => {
           while (cursor < offsets.length) {
             const offset = offsets[cursor++]
             const page = await fetchFullProjectionPage<T>(kind, offset, statuses)

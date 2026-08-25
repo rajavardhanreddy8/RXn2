@@ -129,7 +129,7 @@ export type ProjectionPage<T> = {
 }
 
 export async function fetchFullProjectionPage<T extends LargeGraphNode | LargeGraphEdge>(
-  kind: 'nodes' | 'edges', offset: number, statuses: string[], limit = 5000,
+  kind: 'nodes' | 'edges', offset: number, statuses: string[], limit = 1000,
 ) {
   const parameters = new URLSearchParams({
     kind, offset: String(offset), limit: String(limit), validation_statuses: statuses.join(','),
