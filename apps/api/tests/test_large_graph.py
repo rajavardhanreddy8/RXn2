@@ -4,6 +4,7 @@ from apps.api.app import db
 from apps.api.app.graph_projection import (
     graph_neighborhood,
     graph_overview,
+    graph_projection_page,
     graph_route_map,
     graph_search,
     graph_stats,
@@ -87,3 +88,19 @@ def test_large_graph_queries_are_bounded(tmp_path, monkeypatch):
     assert len(neighborhood["nodes"]) <= 2000
     assert len(neighborhood["edges"]) <= 5000
     assert neighborhood["automatic_acceptance"] is False
+
+
+def test_full_projection_pages_reconcile_with_stats(tmp_path, monkeypatch):
+    path = tmp_path / "full-graph.sqlite"
+    monkeypatch.setattr(db, "DB_PATH", path)
+    db.initialize()
+    seed_demo()
+    rebuild_graph_projection()
+
+    stats = graph_stats()
+    nodes = graph_projection_page("nodes", 0, 10)
+    edges = graph_projection_page("edges", 0, 10, {"validated", "unresolved", "rejected"})
+    assert nodes["total"] == stats["node_count"]
+    assert edges["total"] == stats["edge_count"]
+    assert nodes["items"] == sorted(nodes["items"], key=lambda item: item["node_id"])
+    assert edges["items"] == sorted(edges["items"], key=lambda item: item["edge_id"])

@@ -28,6 +28,7 @@ from .graph_projection import (
     export_graph,
     graph_neighborhood,
     graph_overview,
+    graph_projection_page,
     graph_path,
     graph_route_map,
     graph_search,
@@ -785,6 +786,16 @@ def large_graph_search(
     limit: int = Query(default=25, ge=1, le=100),
 ) -> dict:
     return {"items": graph_search(query, node_type, limit), "automatic_acceptance": False}
+
+
+@app.get("/api/graph/projection")
+def full_graph_projection_page(
+    kind: str = Query(pattern="^(nodes|edges)$"),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=5000, ge=1, le=5000),
+    validation_statuses: str = Query(default="validated,unresolved,rejected"),
+) -> dict:
+    return graph_projection_page(kind, offset, limit, _graph_statuses(validation_statuses))
 
 
 @app.get("/api/graph/routes")

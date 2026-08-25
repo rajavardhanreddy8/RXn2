@@ -4,7 +4,7 @@ import forceAtlas2 from 'graphology-layout-forceatlas2'
 import Sigma from 'sigma'
 import {
   fetchLargeGraphNeighborhood, fetchLargeGraphOverview, fetchLargeGraphStats,
-  fetchLargeRouteGraph, fetchMoleculeStructure, findLargeGraphPath, isHostedGraph, searchLargeGraph,
+  fetchLargeRouteGraph, fetchFullProjectionPage, fetchMoleculeStructure, findLargeGraphPath, isHostedGraph, searchLargeGraph,
 } from './api'
 import type { LargeGraphEdge, LargeGraphNeighborhood, LargeGraphNode, LargeGraphOverview, LargeGraphStats, MoleculeStructure } from './api'
 
@@ -48,8 +48,9 @@ export default function LargeGraphExplorer() {
   const [stats, setStats] = useState<LargeGraphStats | null>(null)
   const [overview, setOverview] = useState<LargeGraphOverview | null>(null)
   const [routeDisplay, setRouteDisplay] = useState<DisplayGraph | null>(null)
+  const [fullDisplay, setFullDisplay] = useState<DisplayGraph | null>(null)
   const [display, setDisplay] = useState<DisplayGraph | null>(null)
-  const [viewMode, setViewMode] = useState<'routes' | 'overview'>('routes')
+  const [viewMode, setViewMode] = useState<'routes' | 'overview' | 'full'>('routes')
   const [query, setQuery] = useState('')
   const [nodeType, setNodeType] = useState('')
   const [results, setResults] = useState<LargeGraphNode[]>([])
@@ -63,6 +64,7 @@ export default function LargeGraphExplorer() {
   const [message, setMessage] = useState('Loading graph projection…')
   const [error, setError] = useState('')
   const [fullscreen, setFullscreen] = useState(false)
+  const [fullProgress, setFullProgress] = useState<{ loaded: number; total: number; kind: string } | null>(null)
 
   useEffect(() => {
     const syncFullscreen = () => setFullscreen(document.fullscreenElement === stage.current)
@@ -103,7 +105,7 @@ export default function LargeGraphExplorer() {
       })),
     }
   }, [overview])
-  const activeDisplay = display || (viewMode === 'routes' ? routeDisplay : overviewDisplay)
+  const activeDisplay = display || (viewMode === 'routes' ? routeDisplay : viewMode === 'full' ? fullDisplay : overviewDisplay)
 
   useEffect(() => {
     if (!container.current || !activeDisplay) return
@@ -115,7 +117,7 @@ export default function LargeGraphExplorer() {
       const radius = node.node_id === activeDisplay.selected ? 0 : 8 + (hash(node.node_id + ':r') % 100) / 8
       graph.addNode(node.node_id, {
         label: node.label, x: Math.cos(angle) * radius, y: Math.sin(angle) * radius,
-        size: node.node_id === activeDisplay.selected ? 13 : node.node_id.startsWith('type:') ? 10 : 4,
+        size: node.node_id === activeDisplay.selected ? 13 : node.node_id.startsWith('type:') ? 10 : viewMode === 'full' ? 1.5 : 4,
         color: COLORS[node.node_type] || '#7f8883', nodeType: node.node_type,
       })
     }
@@ -138,7 +140,7 @@ export default function LargeGraphExplorer() {
       })
     }
     const renderer = new Sigma(graph, container.current, {
-      renderEdgeLabels: false, labelDensity: 0.08, labelGridCellSize: 120,
+      renderEdgeLabels: false, renderLabels: graph.order <= 5_000, labelDensity: 0.08, labelGridCellSize: 120,
       defaultNodeColor: '#7f8883', defaultEdgeColor: '#aeb5b1',
     })
     renderer.on('clickNode', ({ node }) => {
@@ -183,6 +185,39 @@ export default function LargeGraphExplorer() {
     } catch (problem) { setError(problem instanceof Error ? problem.message : 'Path search failed.') }
   }
 
+  async function loadFullProjection() {
+    if (fullDisplay) { setViewMode('full'); return }
+    try {
+      setError(''); setFullProgress({ loaded: 0, total: stats?.node_count || 0, kind: 'nodes' })
+      const load = async <T extends LargeGraphNode | LargeGraphEdge>(kind: 'nodes' | 'edges') => {
+        const first = await fetchFullProjectionPage<T>(kind, 0, statuses)
+        const pages = [first]
+        const offsets: number[] = []
+        for (let offset = first.items.length; offset < first.total; offset += first.limit) offsets.push(offset)
+        let cursor = 0
+        const workers = Array.from({ length: Math.min(4, offsets.length) }, async () => {
+          while (cursor < offsets.length) {
+            const offset = offsets[cursor++]
+            const page = await fetchFullProjectionPage<T>(kind, offset, statuses)
+            pages.push(page)
+            setFullProgress({ loaded: pages.reduce((count, item) => count + item.items.length, 0), total: first.total, kind })
+          }
+        })
+        await Promise.all(workers)
+        return pages.sort((left, right) => left.offset - right.offset).flatMap((page) => page.items)
+      }
+      const nodes = await load<LargeGraphNode>('nodes')
+      const edges = await load<LargeGraphEdge>('edges')
+      setFullDisplay({ nodes, edges })
+      setDisplay(null); setSelected(null); setViewMode('full')
+      setMessage(`Full projection · ${nodes.length.toLocaleString()} nodes · ${edges.length.toLocaleString()} edges`)
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : 'Could not load the full graph.')
+    } finally {
+      setFullProgress(null)
+    }
+  }
+
   function toggleStatus(status: string) {
     setStatuses((current) => current.includes(status) ? (current.length > 1 ? current.filter((item) => item !== status) : current) : [...current, status])
   }
@@ -194,13 +229,13 @@ export default function LargeGraphExplorer() {
   }
 
   return <section className="large-graph-explorer" id="large-graph">
-    <div className="large-graph-heading"><div><span className="kicker">RXN2 multidimensional graph</span><h2>{stats?.node_count.toLocaleString() || '—'} nodes · {stats?.edge_count.toLocaleString() || '—'} edges</h2><p>Route map shows only evidence-backed molecule transformations. Dataset overview shows catalogue, patent and chemical dimensions.</p></div><div className="graph-view-switch"><button className={viewMode === 'routes' ? 'active' : ''} onClick={() => { setViewMode('routes'); setDisplay(null); setSelected(null) }}>Route map</button><button className={viewMode === 'overview' ? 'active' : ''} onClick={() => { setViewMode('overview'); setDisplay(null); setSelected(null) }}>Dataset overview</button></div></div>
+    <div className="large-graph-heading"><div><span className="kicker">RXN2 multidimensional graph</span><h2>{stats?.node_count.toLocaleString() || '—'} nodes · {stats?.edge_count.toLocaleString() || '—'} edges</h2><p>Route map shows only evidence-backed molecule transformations. Dataset overview shows catalogue, patent and chemical dimensions.</p></div><div className="graph-view-switch"><button className={viewMode === 'routes' ? 'active' : ''} onClick={() => { setViewMode('routes'); setDisplay(null); setSelected(null) }}>Route map</button><button className={viewMode === 'overview' ? 'active' : ''} onClick={() => { setViewMode('overview'); setDisplay(null); setSelected(null) }}>Dataset overview</button><button className={viewMode === 'full' ? 'active' : ''} disabled={Boolean(fullProgress)} onClick={() => void loadFullProjection()}>{fullProgress ? `Loading ${fullProgress.kind} ${fullProgress.loaded.toLocaleString()}/${fullProgress.total.toLocaleString()}` : 'Full projection'}</button></div></div>
     {error && <div className="alert error"><b>Graph error</b><span>{error}</span></div>}
     <div className="large-graph-toolbar">
       <form onSubmit={submitSearch}><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Drug, compound, InChIKey or patent" /><button>Search</button></form>
-      <select disabled={viewMode === 'routes'} value={nodeType} onChange={(event) => { setNodeType(event.target.value); setDisplay(null); setSelected(null) }} aria-label="Node type"><option value="">All dimensions</option>{stats?.nodes_by_type.map((item) => <option key={item.node_type} value={item.node_type}>{pretty(item.node_type)} ({item.count.toLocaleString()})</option>)}</select>
-      <select disabled={viewMode === 'routes'} value={direction} onChange={(event) => { setDirection(event.target.value); setDisplay(null); setSelected(null) }} aria-label="Direction"><option value="both">Both directions</option><option value="incoming">Upstream</option><option value="outgoing">Downstream</option></select>
-      <select disabled={viewMode === 'routes'} value={depth} onChange={(event) => { setDepth(Number(event.target.value)); setDisplay(null); setSelected(null) }} aria-label="Depth"><option value={1}>1 hop</option><option value={2}>2 hops</option><option value={3}>3 hops</option></select>
+      <select disabled={viewMode === 'routes' || viewMode === 'full'} value={nodeType} onChange={(event) => { setNodeType(event.target.value); setDisplay(null); setSelected(null) }} aria-label="Node type"><option value="">All dimensions</option>{stats?.nodes_by_type.map((item) => <option key={item.node_type} value={item.node_type}>{pretty(item.node_type)} ({item.count.toLocaleString()})</option>)}</select>
+      <select disabled={viewMode === 'routes' || viewMode === 'full'} value={direction} onChange={(event) => { setDirection(event.target.value); setDisplay(null); setSelected(null) }} aria-label="Direction"><option value="both">Both directions</option><option value="incoming">Upstream</option><option value="outgoing">Downstream</option></select>
+      <select disabled={viewMode === 'routes' || viewMode === 'full'} value={depth} onChange={(event) => { setDepth(Number(event.target.value)); setDisplay(null); setSelected(null) }} aria-label="Depth"><option value={1}>1 hop</option><option value={2}>2 hops</option><option value={3}>3 hops</option></select>
     </div>
     <div className="large-graph-statuses">{['validated','unresolved','rejected'].map((status) => <label key={status}><input type="checkbox" checked={statuses.includes(status)} onChange={() => { toggleStatus(status); setDisplay(null); setSelected(null) }} /> {status}</label>)}</div>
     {results.length > 0 && <div className="graph-search-results">{results.map((node) => <button key={node.node_id} onClick={() => void openNode(node.node_id)}><b>{node.label}</b><small>{pretty(node.node_type)} · {node.node_id}</small></button>)}</div>}

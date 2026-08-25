@@ -1,6 +1,7 @@
 import type { AutomationStatus, CoverageResponse, CoverageStatus, GenerateResponse, Graph, ReviewQueueResponse } from './types'
 
 const hostedGraphEndpoint = import.meta.env.VITE_RXN2_HOSTED_API?.replace(/\/$/, '')
+const hostedProjectionEndpoint = import.meta.env.VITE_RXN2_FULL_PROJECTION_API?.replace(/\/$/, '')
 
 export const isHostedGraph = Boolean(hostedGraphEndpoint)
 
@@ -12,6 +13,7 @@ function hostedRequestUrl(localUrl: string) {
     if (parsed.pathname === '/api/graph/stats') return 'stats'
     if (parsed.pathname === '/api/graph/overview') return 'overview'
     if (parsed.pathname === '/api/graph/routes') return 'routes'
+    if (parsed.pathname === '/api/graph/projection') return 'projection'
     if (parsed.pathname === '/api/graph/search') return 'search'
     if (parsed.pathname.startsWith('/api/chemistry/structure/')) {
       parameters.set('compound_id', decodeURIComponent(parsed.pathname.split('/').at(-1) || ''))
@@ -116,6 +118,29 @@ export async function fetchLargeGraphNeighborhood(nodeId: string, depth: number,
 export async function fetchLargeRouteGraph(statuses: string[]) {
   const parameters = new URLSearchParams({ validation_statuses: statuses.join(',') })
   return request<LargeGraphNeighborhood>(`/api/graph/routes?${parameters}`)
+}
+
+export type ProjectionPage<T> = {
+  kind: 'nodes' | 'edges'
+  offset: number
+  limit: number
+  total: number
+  items: T[]
+}
+
+export async function fetchFullProjectionPage<T extends LargeGraphNode | LargeGraphEdge>(
+  kind: 'nodes' | 'edges', offset: number, statuses: string[], limit = 5000,
+) {
+  const parameters = new URLSearchParams({
+    kind, offset: String(offset), limit: String(limit), validation_statuses: statuses.join(','),
+  })
+  if (hostedProjectionEndpoint) {
+    const response = await fetch(`${hostedProjectionEndpoint}?${parameters}`)
+    const body = await response.json()
+    if (!response.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Full graph request failed')
+    return body as ProjectionPage<T>
+  }
+  return request<ProjectionPage<T>>(`/api/graph/projection?${parameters}`)
 }
 
 export async function findLargeGraphPath(source: string, target: string, statuses: string[]) {

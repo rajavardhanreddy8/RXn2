@@ -232,6 +232,38 @@ def graph_search(query: str, node_type: str | None, limit: int) -> list[dict]:
         )]
 
 
+def graph_projection_page(kind: str, offset: int, limit: int,
+                          statuses: set[str] | None = None) -> dict:
+    """Return one deterministic page of the complete derived projection.
+
+    This is deliberately a page API rather than a second visual-only graph.
+    A client that explicitly asks for the full graph can assemble every stored
+    node and edge without changing the curated database or fabricating links.
+    """
+    if kind not in {"nodes", "edges"}:
+        raise ValueError("kind must be nodes or edges")
+    table = "graph_node" if kind == "nodes" else "graph_edge"
+    order = "node_id" if kind == "nodes" else "edge_id"
+    with connect() as db:
+        if kind == "edges":
+            included = statuses or {"validated", "unresolved", "rejected"}
+            marks = ",".join("?" for _ in included)
+            total = db.execute(
+                f"SELECT count(*) FROM {table} WHERE validation_status IN ({marks})", sorted(included)
+            ).fetchone()[0]
+            rows = db.execute(
+                f"SELECT * FROM {table} WHERE validation_status IN ({marks}) ORDER BY {order} LIMIT ? OFFSET ?",
+                [*sorted(included), limit, offset],
+            ).fetchall()
+        else:
+            total = db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            rows = db.execute(
+                f"SELECT * FROM {table} ORDER BY {order} LIMIT ? OFFSET ?", (limit, offset)
+            ).fetchall()
+    return {"kind": kind, "offset": offset, "limit": limit, "total": total,
+            "items": [dict(row) for row in rows], "automatic_acceptance": False}
+
+
 def graph_route_map(statuses: set[str] | None = None, collapsed: bool = True) -> dict:
     """Return only demonstrated/provisional molecule transformations.
 
