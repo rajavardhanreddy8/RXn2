@@ -53,31 +53,45 @@ def build_queue(limit: int) -> dict:
                    SELECT 1 FROM relation_candidate p WHERE p.evidence_span_id=e.evidence_span_id
                      AND p.predicate='produced'
                  )
+               ), material_role AS (
+                 SELECT r.evidence_span_id,r.predicate,r.validation_status,r.validation_reason,
+                        CASE WHEN r.predicate='produced' THEN r.object_text ELSE r.subject_text END AS material_name,
+                        lower(trim(CASE WHEN r.predicate='produced' THEN r.object_text ELSE r.subject_text END)) AS normalized_name,
+                        e.publication_number
+                 FROM relation_candidate r JOIN eligible_span q USING(evidence_span_id)
+                   JOIN evidence_span e USING(evidence_span_id)
+                 WHERE r.predicate IN ('consumed','produced')
+               ), role_summary AS (
+                 SELECT normalized_name,
+                        count(DISTINCT CASE WHEN predicate='produced' THEN evidence_span_id END) produced_procedure_count,
+                        count(DISTINCT CASE WHEN predicate='consumed' THEN evidence_span_id END) consumed_procedure_count
+                 FROM material_role GROUP BY normalized_name
                ), unresolved AS (
-                 SELECT evidence_span_id, predicate,
-                        CASE WHEN predicate='produced' THEN object_text ELSE subject_text END AS material_name
-                 FROM relation_candidate
-                 WHERE predicate IN ('consumed','produced')
-                   AND validation_status='unresolved'
-                   AND validation_reason='compound_identity_unresolved'
+                 SELECT * FROM material_role
+                 WHERE validation_status='unresolved' AND validation_reason='compound_identity_unresolved'
                )
-               SELECT lower(trim(u.material_name)) normalized_name,u.material_name,u.predicate,
+               SELECT u.normalized_name,min(u.material_name) material_name,
                       count(*) mention_count,count(DISTINCT u.evidence_span_id) procedure_count,
-                      count(DISTINCT e.publication_number) patent_count,
-                      min(e.publication_number) example_publication,
-                      min(e.evidence_span_id) example_evidence_span_id
-               FROM unresolved u JOIN eligible_span q USING(evidence_span_id)
-                 JOIN evidence_span e USING(evidence_span_id)
-               GROUP BY lower(trim(u.material_name)),u.material_name,u.predicate
-               ORDER BY procedure_count DESC,mention_count DESC,normalized_name
+                      count(DISTINCT u.publication_number) patent_count,
+                      min(u.publication_number) example_publication,
+                      min(u.evidence_span_id) example_evidence_span_id,
+                      s.produced_procedure_count,s.consumed_procedure_count
+               FROM unresolved u JOIN role_summary s USING(normalized_name)
+               GROUP BY u.normalized_name,s.produced_procedure_count,s.consumed_procedure_count
+               ORDER BY procedure_count DESC,mention_count DESC,u.normalized_name
                LIMIT ?""",
             (limit,),
         ).fetchall()
     items = []
     for row in rows:
         lane, reason = queue_lane(row["material_name"])
+        is_intermediate = bool(row["produced_procedure_count"] and row["consumed_procedure_count"])
         items.append(dict(row) | {
             "resolution_state": "unresolved", "queue_lane": lane, "queue_reason": reason,
+            "graph_role": "intermediate_candidate" if is_intermediate else (
+                "product_candidate" if row["produced_procedure_count"] else "starting_material_candidate"
+            ),
+            "intermediate_candidate": is_intermediate,
             "automatic_merge_allowed": False,
             "required_evidence": ["exact source name", "canonical structure", "source identifier or validated structure match"],
         })
