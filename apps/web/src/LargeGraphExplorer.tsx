@@ -44,6 +44,7 @@ function MoleculePreview({ compoundId }: { compoundId: string }) {
 
 export default function LargeGraphExplorer() {
   const container = useRef<HTMLDivElement>(null)
+  const stage = useRef<HTMLDivElement>(null)
   const [stats, setStats] = useState<LargeGraphStats | null>(null)
   const [overview, setOverview] = useState<LargeGraphOverview | null>(null)
   const [routeDisplay, setRouteDisplay] = useState<DisplayGraph | null>(null)
@@ -61,6 +62,13 @@ export default function LargeGraphExplorer() {
   const [pathEnd, setPathEnd] = useState('')
   const [message, setMessage] = useState('Loading graph projection…')
   const [error, setError] = useState('')
+  const [fullscreen, setFullscreen] = useState(false)
+
+  useEffect(() => {
+    const syncFullscreen = () => setFullscreen(document.fullscreenElement === stage.current)
+    document.addEventListener('fullscreenchange', syncFullscreen)
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen)
+  }, [])
 
   useEffect(() => {
     fetchLargeGraphStats().then(setStats).catch((problem) => setError(problem instanceof Error ? problem.message : 'Large graph is unavailable.'))
@@ -138,7 +146,7 @@ export default function LargeGraphExplorer() {
       void openNode(node)
     })
     return () => renderer.kill()
-  }, [activeDisplay])
+  }, [activeDisplay, fullscreen])
 
   async function submitSearch(event: FormEvent) {
     event.preventDefault(); if (!query.trim()) return
@@ -179,6 +187,12 @@ export default function LargeGraphExplorer() {
     setStatuses((current) => current.includes(status) ? (current.length > 1 ? current.filter((item) => item !== status) : current) : [...current, status])
   }
 
+  async function toggleFullscreen() {
+    if (!stage.current) return
+    if (document.fullscreenElement === stage.current) await document.exitFullscreen()
+    else await stage.current.requestFullscreen()
+  }
+
   return <section className="large-graph-explorer" id="large-graph">
     <div className="large-graph-heading"><div><span className="kicker">RXN2 multidimensional graph</span><h2>{stats?.node_count.toLocaleString() || '—'} nodes · {stats?.edge_count.toLocaleString() || '—'} edges</h2><p>Route map shows only evidence-backed molecule transformations. Dataset overview shows catalogue, patent and chemical dimensions.</p></div><div className="graph-view-switch"><button className={viewMode === 'routes' ? 'active' : ''} onClick={() => { setViewMode('routes'); setDisplay(null); setSelected(null) }}>Route map</button><button className={viewMode === 'overview' ? 'active' : ''} onClick={() => { setViewMode('overview'); setDisplay(null); setSelected(null) }}>Dataset overview</button></div></div>
     {error && <div className="alert error"><b>Graph error</b><span>{error}</span></div>}
@@ -190,7 +204,7 @@ export default function LargeGraphExplorer() {
     </div>
     <div className="large-graph-statuses">{['validated','unresolved','rejected'].map((status) => <label key={status}><input type="checkbox" checked={statuses.includes(status)} onChange={() => { toggleStatus(status); setDisplay(null); setSelected(null) }} /> {status}</label>)}</div>
     {results.length > 0 && <div className="graph-search-results">{results.map((node) => <button key={node.node_id} onClick={() => void openNode(node.node_id)}><b>{node.label}</b><small>{pretty(node.node_type)} · {node.node_id}</small></button>)}</div>}
-    <div className="large-graph-stage"><div ref={container} className="sigma-host" /><aside>
+    <div ref={stage} className={`large-graph-stage${fullscreen ? ' graph-fullscreen' : ''}`}><div className="sigma-host"><button className="graph-fullscreen-toggle" onClick={() => void toggleFullscreen()} aria-label={fullscreen ? 'Exit full screen graph' : 'Open full screen graph'}>{fullscreen ? 'Exit full screen' : 'Full screen'}</button><div ref={container} className="sigma-canvas" /></div><aside>
       <span className="panel-label">Selection</span>
       {selected ? <><h3>{selected.label}</h3><p>{pretty(selected.node_type)} · {selected.review_status}</p>{selected.node_id.startsWith('compound:') && <MoleculePreview compoundId={selected.node_id.slice('compound:'.length)} />}<dl><dt>Node ID</dt><dd>{selected.node_id}</dd><dt>Direct relations</dt><dd>{selectedEdges.length}</dd></dl><div className="graph-path-actions"><button onClick={() => setPathStart(selected.node_id)}>Set path start</button><button onClick={() => setPathEnd(selected.node_id)}>Set path end</button></div>{!isHostedGraph && <><a href={`/api/graph/export?node_id=${encodeURIComponent(selected.node_id)}&depth=${depth}&format=graphml`}>Export GraphML</a><a href={`/api/graph/export?node_id=${encodeURIComponent(selected.node_id)}&depth=${depth}&format=jsonl`}>Export JSONL</a></>}{selectedEdges.slice(0, 8).map((edge) => <div className="evidence-edge" key={edge.edge_id}><b>{pretty(edge.predicate)}</b><span>{edge.validation_status}</span><small>{edge.evidence_span_id || edge.source_table}</small></div>)}</> : <p>Select a curated compound from search to see its real atom-and-bond structure, then inspect connected route evidence.</p>}
     </aside></div>
