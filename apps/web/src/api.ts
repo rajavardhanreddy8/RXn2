@@ -115,8 +115,8 @@ export async function fetchLargeGraphNeighborhood(nodeId: string, depth: number,
   return request<LargeGraphNeighborhood>(`/api/graph/neighborhood/${encodeURIComponent(nodeId)}?${parameters}`)
 }
 
-export async function fetchLargeRouteGraph(statuses: string[]) {
-  const parameters = new URLSearchParams({ validation_statuses: statuses.join(',') })
+export async function fetchLargeRouteGraph(statuses: string[], processLayer = 'core') {
+  const parameters = new URLSearchParams({ validation_statuses: statuses.join(','), process_layer: processLayer })
   return request<LargeGraphNeighborhood>(`/api/graph/routes?${parameters}`)
 }
 

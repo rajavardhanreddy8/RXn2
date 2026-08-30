@@ -51,6 +51,7 @@ export default function LargeGraphExplorer() {
   const [fullDisplay, setFullDisplay] = useState<DisplayGraph | null>(null)
   const [display, setDisplay] = useState<DisplayGraph | null>(null)
   const [viewMode, setViewMode] = useState<'routes' | 'overview' | 'full'>('routes')
+  const [processLayer, setProcessLayer] = useState<'core' | 'candidates' | 'support' | 'all'>('core')
   const [query, setQuery] = useState('')
   const [nodeType, setNodeType] = useState('')
   const [results, setResults] = useState<LargeGraphNode[]>([])
@@ -87,12 +88,13 @@ export default function LargeGraphExplorer() {
 
   useEffect(() => {
     if (display || viewMode !== 'routes') return
-    fetchLargeRouteGraph(statuses).then((graph) => {
+    fetchLargeRouteGraph(statuses, processLayer).then((graph) => {
       setRouteDisplay(graph)
-      setMessage(`Whole evidence route network · ${graph.nodes.length.toLocaleString()} materials · ${graph.edges.length.toLocaleString()} transformations`)
+      const layerName = processLayer === 'core' ? 'Core chemical synthesis' : processLayer === 'candidates' ? 'Provisional synthesis candidates' : processLayer === 'support' ? 'Supporting manufacturing' : 'All process classes'
+      setMessage(`${layerName} · ${graph.nodes.length.toLocaleString()} compounds · ${graph.edges.length.toLocaleString()} processes`)
       setError('')
     }).catch((problem) => setError(problem instanceof Error ? problem.message : 'Route graph is unavailable.'))
-  }, [statuses, display, viewMode])
+  }, [statuses, processLayer, display, viewMode])
 
   const overviewDisplay = useMemo<DisplayGraph | null>(() => {
     if (!overview) return null
@@ -230,10 +232,11 @@ export default function LargeGraphExplorer() {
   }
 
   return <section className="large-graph-explorer" id="large-graph">
-    <div className="large-graph-heading"><div><span className="kicker">RXN2 multidimensional graph</span><h2>{stats?.node_count.toLocaleString() || '—'} nodes · {stats?.edge_count.toLocaleString() || '—'} edges</h2><p>Route map shows only evidence-backed molecule transformations. Dataset overview shows catalogue, patent and chemical dimensions.</p></div><div className="graph-view-switch"><button className={viewMode === 'routes' ? 'active' : ''} onClick={() => { setViewMode('routes'); setDisplay(null); setSelected(null) }}>Route map</button><button className={viewMode === 'overview' ? 'active' : ''} onClick={() => { setViewMode('overview'); setDisplay(null); setSelected(null) }}>Dataset overview</button><button className={viewMode === 'full' ? 'active' : ''} disabled={Boolean(fullProgress)} onClick={() => void loadFullProjection()}>{fullProgress ? `Loading ${fullProgress.kind} ${fullProgress.loaded.toLocaleString()}/${fullProgress.total.toLocaleString()}` : 'Full projection'}</button></div></div>
+    <div className="large-graph-heading"><div><span className="kicker">RXN2 multidimensional graph</span><h2>{stats?.node_count.toLocaleString() || '—'} nodes · {stats?.edge_count.toLocaleString() || '—'} edges</h2><p>Core route mode shows structure-gated molecule transformations. Manufacturing operations and the complete evidence graph remain separate views.</p></div><div className="graph-view-switch"><button className={viewMode === 'routes' ? 'active' : ''} onClick={() => { setViewMode('routes'); setDisplay(null); setSelected(null) }}>Chemical routes</button><button className={viewMode === 'overview' ? 'active' : ''} onClick={() => { setViewMode('overview'); setDisplay(null); setSelected(null) }}>Dataset overview</button><button className={viewMode === 'full' ? 'active' : ''} disabled={Boolean(fullProgress)} onClick={() => void loadFullProjection()}>{fullProgress ? `Loading ${fullProgress.kind} ${fullProgress.loaded.toLocaleString()}/${fullProgress.total.toLocaleString()}` : 'Evidence graph'}</button></div></div>
     {error && <div className="alert error"><b>Graph error</b><span>{error}</span></div>}
     <div className="large-graph-toolbar">
       <form onSubmit={submitSearch}><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Drug, compound, InChIKey or patent" /><button>Search</button></form>
+      <select disabled={viewMode !== 'routes'} value={processLayer} onChange={(event) => { setProcessLayer(event.target.value as 'core' | 'candidates' | 'support' | 'all'); setRouteDisplay(null); setDisplay(null); setSelected(null) }} aria-label="Process layer"><option value="core">Core chemical synthesis</option><option value="candidates">Provisional synthesis candidates</option><option value="support">Supporting manufacturing</option><option value="all">All process classes</option></select>
       <select disabled={viewMode === 'routes' || viewMode === 'full'} value={nodeType} onChange={(event) => { setNodeType(event.target.value); setDisplay(null); setSelected(null) }} aria-label="Node type"><option value="">All dimensions</option>{stats?.nodes_by_type.map((item) => <option key={item.node_type} value={item.node_type}>{pretty(item.node_type)} ({item.count.toLocaleString()})</option>)}</select>
       <select disabled={viewMode === 'routes' || viewMode === 'full'} value={direction} onChange={(event) => { setDirection(event.target.value); setDisplay(null); setSelected(null) }} aria-label="Direction"><option value="both">Both directions</option><option value="incoming">Upstream</option><option value="outgoing">Downstream</option></select>
       <select disabled={viewMode === 'routes' || viewMode === 'full'} value={depth} onChange={(event) => { setDepth(Number(event.target.value)); setDisplay(null); setSelected(null) }} aria-label="Depth"><option value={1}>1 hop</option><option value={2}>2 hops</option><option value={3}>3 hops</option></select>
@@ -245,6 +248,6 @@ export default function LargeGraphExplorer() {
       {selected ? <><h3>{selected.label}</h3><p>{pretty(selected.node_type)} · {selected.review_status}</p>{selected.node_id.startsWith('compound:') && <MoleculePreview compoundId={selected.node_id.slice('compound:'.length)} />}<dl><dt>Node ID</dt><dd>{selected.node_id}</dd><dt>Direct relations</dt><dd>{selectedEdges.length}</dd></dl><div className="graph-path-actions"><button onClick={() => setPathStart(selected.node_id)}>Set path start</button><button onClick={() => setPathEnd(selected.node_id)}>Set path end</button></div>{!isHostedGraph && <><a href={`/api/graph/export?node_id=${encodeURIComponent(selected.node_id)}&depth=${depth}&format=graphml`}>Export GraphML</a><a href={`/api/graph/export?node_id=${encodeURIComponent(selected.node_id)}&depth=${depth}&format=jsonl`}>Export JSONL</a></>}{selectedEdges.slice(0, 8).map((edge) => <div className="evidence-edge" key={edge.edge_id}><b>{pretty(edge.predicate)}</b><span>{edge.validation_status}</span><small>{edge.evidence_span_id || edge.source_table}</small></div>)}</> : <p>Select a curated compound from search to see its real atom-and-bond structure, then inspect connected route evidence.</p>}
     </aside></div>
     <div className="graph-path-bar"><input value={pathStart} onChange={(event) => setPathStart(event.target.value)} placeholder="Path start node ID" /><span>→</span><input value={pathEnd} onChange={(event) => setPathEnd(event.target.value)} placeholder="Path end node ID" /><button onClick={() => void runPath()}>Find path</button></div>
-    <div className="large-graph-message">{message} · provisional evidence remains review-gated</div>
+    <div className="large-graph-message">{message} · quantities and conditions are evidence attributes, not route nodes · provisional chemistry remains review-gated</div>
   </section>
 }

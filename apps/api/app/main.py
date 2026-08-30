@@ -802,8 +802,9 @@ def full_graph_projection_page(
 def large_route_graph(
     validation_statuses: str = Query(default="validated,unresolved"),
     collapsed: bool = Query(default=True),
+    process_layer: str = Query(default="core", pattern="^(core|candidates|support|all)$"),
 ) -> dict:
-    return graph_route_map(_graph_statuses(validation_statuses), collapsed)
+    return graph_route_map(_graph_statuses(validation_statuses), collapsed, process_layer)
 
 
 @app.get("/api/chemistry/structure/{compound_id:path}")

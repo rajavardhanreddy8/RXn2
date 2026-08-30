@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from apps.api.app import db
 from apps.api.app.graph_projection import (
+    _process_class,
     graph_neighborhood,
     graph_overview,
     graph_projection_page,
@@ -11,6 +12,18 @@ from apps.api.app.graph_projection import (
     rebuild_graph_projection,
 )
 from apps.api.app.seed import seed_demo
+
+
+def test_route_process_classes_use_structure_layers_not_noisy_text():
+    assert _process_class(
+        "LFQSCWFLJHTTHZ-UHFFFAOYSA-N", "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
+    ) == "isolation_or_workup"
+    assert _process_class(
+        "LFQSCWFLJHTTHZ-UHFFFAOYSA-N", "LFQSCWFLJHTTHZ-ABCDEFABSA-N"
+    ) == "salt_stereoisomer_or_solid_form"
+    assert _process_class(
+        "LFQSCWFLJHTTHZ-UHFFFAOYSA-N", "QTBSBXVTEAMEQO-UHFFFAOYSA-N"
+    ) == "synthetic_transformation_candidate"
 
 
 def test_large_graph_projection_is_idempotent_and_review_safe(tmp_path, monkeypatch):
@@ -67,6 +80,7 @@ def test_large_graph_queries_are_bounded(tmp_path, monkeypatch):
     assert route_map["edges"]
     assert route_map["edges"]
     assert all(edge["predicate"] == "transforms_to" for edge in route_map["edges"])
+    assert len({edge["edge_id"] for edge in route_map["edges"]}) == len(route_map["edges"])
     assert len(route_map["nodes"]) < len(raw_route_map["nodes"])
     assert all(edge["predicate"] in {"consumed", "produced"} for edge in raw_route_map["edges"])
     assert all(

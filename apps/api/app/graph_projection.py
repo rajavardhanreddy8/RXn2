@@ -264,84 +264,287 @@ def graph_projection_page(kind: str, offset: int, limit: int,
             "items": [dict(row) for row in rows], "automatic_acceptance": False}
 
 
-def graph_route_map(statuses: set[str] | None = None, collapsed: bool = True) -> dict:
-    """Return only demonstrated/provisional molecule transformations.
+_PROCESS_TERMS = {
+    "formulation_or_dosage": (
+        "tablet", "capsule", "granule", "syrup", "cream", "ointment",
+        "suspension", "dosage form", "formulation", "pharmaceutical composition",
+        "excipient", "coating composition",
+    ),
+    "analytical": (
+        "hplc", "chromatogram", "spectroscopy", "assay method",
+        "analytical method", "dissolution test", "particle size analysis",
+    ),
+    "solid_form_or_purification": (
+        "crystalline form", "crystal form", "polymorph", "recrystall",
+        "seeded with", "purified by", "column chromatography",
+        "preparative chromatography",
+    ),
+}
 
-    Compounds and unresolved verbatim material mentions are streets; procedures
-    and reactions are junctions. Reagents, solvents, patents and
-    element-membership edges are intentionally excluded so this projection
-    cannot be mistaken for a route transformation. Keeping unresolved material
-    mentions makes the map represent the whole extraction corpus without
-    manufacturing a chemical identity.
+
+def _text_process_flags(evidence_text: str) -> list[str]:
+    text = (evidence_text or "").casefold()
+    return sorted(
+        process_class for process_class, terms in _PROCESS_TERMS.items()
+        if any(term in text for term in terms)
+    )
+
+
+def _process_class(consumed_key: str, produced_key: str) -> str:
+    if consumed_key == produced_key:
+        return "isolation_or_workup"
+    # The first InChIKey block represents molecular connectivity. A changed
+    # stereochemical/protonation layer is a distinct manufacturing operation,
+    # but it is not presented as a new covalent synthesis edge.
+    if "-" in consumed_key and "-" in produced_key:
+        if consumed_key.split("-", 1)[0] == produced_key.split("-", 1)[0]:
+            return "salt_stereoisomer_or_solid_form"
+    return "synthetic_transformation_candidate"
+
+
+def _structure_key(row: sqlite3.Row, prefix: str) -> str | None:
+    return row[f"{prefix}_inchi_key"] or row[f"{prefix}_smiles"]
+
+
+def graph_route_map(
+    statuses: set[str] | None = None,
+    collapsed: bool = True,
+    process_layer: str = "core",
+) -> dict:
+    """Return a structure-gated route graph separated by manufacturing class.
+
+    ``core`` contains molecule-to-molecule synthesis. ``support`` contains
+    solid-form, purification, formulation, dosage and isolation processes.
+    All relations remain evidence-linked and review-gated.
     """
-    statuses = statuses or {"validated", "unresolved"}
-    marks = ",".join("?" for _ in statuses)
-    with connect() as db:
-        edges = [dict(row) for row in db.execute(
-            f"""SELECT * FROM graph_edge
-                 WHERE validation_status IN ({marks})
-                   AND predicate IN ('consumed','produced')
-                   AND ((source_node_id LIKE 'compound:%' OR source_node_id LIKE 'mention:%')
-                   AND (target_node_id LIKE 'procedure:%' OR target_node_id LIKE 'reaction:%')
-                    OR (target_node_id LIKE 'compound:%' OR target_node_id LIKE 'mention:%')
-                   AND (source_node_id LIKE 'procedure:%' OR source_node_id LIKE 'reaction:%'))
-                 ORDER BY source_node_id,target_node_id,predicate""", sorted(statuses),
-        )]
-        node_ids = sorted({edge[key] for edge in edges for key in ("source_node_id", "target_node_id")})
-        if not node_ids:
-            nodes = []
-        else:
-            node_marks = ",".join("?" for _ in node_ids)
-            nodes = [dict(row) for row in db.execute(
-                f"SELECT * FROM graph_node WHERE node_id IN ({node_marks})", node_ids,
-            )]
-    if not collapsed:
-        return {"nodes": nodes, "edges": edges, "truncated": False,
-                "automatic_acceptance": False,
-                "note": "Only evidence-backed consumed/produced transformations are shown."}
+    if process_layer not in {"core", "candidates", "support", "all"}:
+        raise ValueError("process_layer must be core, candidates, support or all")
+    del statuses  # A UI filter must never weaken the exact-identity route gate.
 
-    # Contract the visual-only procedure/reaction junction: material -> junction
-    # -> material becomes a direct, provenance-carrying route transition. The
-    # junction remains in properties_json, so the presentation is simpler but
-    # no experimental evidence is lost.
+    with connect() as db:
+        rows = db.execute(
+            """SELECT c.relation_candidate_id consumed_relation_id,
+                      p.relation_candidate_id produced_relation_id,
+                      c.evidence_span_id,e.evidence_text,
+                      c.subject_compound_id consumed_compound_id,
+                      p.object_compound_id produced_compound_id,
+                      ci.inchi_key consumed_inchi_key,co.inchi_key produced_inchi_key,
+                      coalesce(cip.standardized_smiles,ci.smiles) consumed_smiles,
+                      coalesce(cop.standardized_smiles,co.smiles) produced_smiles,
+                      min(c.model_confidence,p.model_confidence) confidence
+                 FROM relation_candidate c
+                 JOIN relation_candidate p
+                   ON p.evidence_span_id=c.evidence_span_id AND p.predicate='produced'
+                 JOIN evidence_span e ON e.evidence_span_id=c.evidence_span_id
+                 JOIN compound ci ON ci.compound_id=c.subject_compound_id
+                 JOIN compound co ON co.compound_id=p.object_compound_id
+                 LEFT JOIN compound_property cip ON cip.compound_id=ci.compound_id
+                 LEFT JOIN compound_property cop ON cop.compound_id=co.compound_id
+                 WHERE c.predicate='consumed'
+                   AND c.validation_status='validated'
+                   AND p.validation_status='validated'
+                   AND EXISTS (
+                     SELECT 1 FROM relation_candidate d
+                     WHERE d.evidence_span_id=c.evidence_span_id
+                       AND d.predicate='describes'
+                       AND d.validation_status='validated'
+                       AND json_extract(d.attributes_json,'$.procedure_type')='performed'
+                       AND coalesce(json_array_length(json_extract(d.attributes_json,'$.conflicts')),0)=0
+                   )
+                   AND (SELECT count(DISTINCT px.object_compound_id)
+                        FROM relation_candidate px
+                        WHERE px.evidence_span_id=c.evidence_span_id
+                          AND px.predicate='produced'
+                          AND px.validation_status='validated'
+                          AND px.object_compound_id IS NOT NULL)=1
+                 ORDER BY c.evidence_span_id,c.relation_candidate_id"""
+        ).fetchall()
+
+        raw_edges: list[dict] = []
+        node_ids: set[str] = set()
+        accounting = Counter()
+        promoted_accounting = Counter()
+        for row in rows:
+            consumed_key = _structure_key(row, "consumed")
+            produced_key = _structure_key(row, "produced")
+            if not consumed_key or not produced_key:
+                accounting["structure_missing"] += 1
+                continue
+            process_class = _process_class(consumed_key, produced_key)
+            accounting[process_class] += 1
+            is_candidate = process_class == "synthetic_transformation_candidate"
+            if process_layer == "core":
+                continue
+            if process_layer == "candidates" and not is_candidate:
+                continue
+            if process_layer == "support" and is_candidate:
+                continue
+            consumed_id = f"compound:{row['consumed_compound_id']}"
+            produced_id = f"compound:{row['produced_compound_id']}"
+            procedure_id = f"procedure:{row['evidence_span_id']}"
+            node_ids.update((consumed_id, produced_id, procedure_id))
+            properties = json.dumps({
+                "process_class": process_class,
+                "text_process_flags": _text_process_flags(row["evidence_text"]),
+                "chemistry_validation": "pending_atom_mapping",
+            }, sort_keys=True)
+            raw_edges.extend((
+                {
+                    "edge_id": f"strict-consumed:{row['consumed_relation_id']}",
+                    "source_node_id": consumed_id, "target_node_id": procedure_id,
+                    "predicate": "consumed", "source_table": "relation_candidate",
+                    "source_record_id": row["consumed_relation_id"],
+                    "validation_status": "validated", "review_status": "needs_review",
+                    "confidence": row["confidence"], "evidence_span_id": row["evidence_span_id"],
+                    "properties_json": properties,
+                },
+                {
+                    "edge_id": f"strict-produced:{row['produced_relation_id']}",
+                    "source_node_id": procedure_id, "target_node_id": produced_id,
+                    "predicate": "produced", "source_table": "relation_candidate",
+                    "source_record_id": row["produced_relation_id"],
+                    "validation_status": "validated", "review_status": "needs_review",
+                    "confidence": row["confidence"], "evidence_span_id": row["evidence_span_id"],
+                    "properties_json": properties,
+                },
+            ))
+
+        # Promoted reaction instances are classified independently from the
+        # loose relation candidates. They remain provisional until chemistry
+        # review, but their route/display class is deterministic.
+        curated_classes: dict[str, str] = {}
+        for row in db.execute(
+            """SELECT ri.reaction_id,
+                      ci.inchi_key consumed_inchi_key,co.inchi_key produced_inchi_key,
+                      coalesce(cip.standardized_smiles,ci.smiles) consumed_smiles,
+                      coalesce(cop.standardized_smiles,co.smiles) produced_smiles
+                 FROM reaction_instance ri
+                 JOIN reaction_participant c
+                   ON c.reaction_id=ri.reaction_id AND c.role IN ('reactant','consumed')
+                 JOIN reaction_participant p
+                   ON p.reaction_id=ri.reaction_id AND p.role IN ('product','produced')
+                 JOIN compound ci ON ci.compound_id=c.compound_id
+                 JOIN compound co ON co.compound_id=p.compound_id
+                 LEFT JOIN compound_property cip ON cip.compound_id=ci.compound_id
+                 LEFT JOIN compound_property cop ON cop.compound_id=co.compound_id
+                 WHERE ri.review_status<>'rejected'
+                   AND (SELECT count(DISTINCT px.compound_id)
+                        FROM reaction_participant px
+                        WHERE px.reaction_id=ri.reaction_id
+                          AND px.role IN ('product','produced'))=1"""
+        ):
+            consumed_key = _structure_key(row, "consumed")
+            produced_key = _structure_key(row, "produced")
+            if not consumed_key or not produced_key:
+                accounting["promoted_structure_missing"] += 1
+                continue
+            process_class = _process_class(consumed_key, produced_key)
+            if process_class == "synthetic_transformation_candidate":
+                process_class = "synthetic_transformation"
+            curated_classes[row["reaction_id"]] = process_class
+        promoted_accounting.update(curated_classes.values())
+
+        selected_reactions = {
+            reaction_id: process_class
+            for reaction_id, process_class in curated_classes.items()
+            if process_layer == "all"
+            or (process_layer == "core" and process_class == "synthetic_transformation")
+            or (process_layer == "support" and process_class != "synthetic_transformation")
+        }
+        if selected_reactions:
+            reaction_marks = ",".join("?" for _ in selected_reactions)
+            curated = [dict(row) for row in db.execute(
+                f"""SELECT ge.* FROM graph_edge ge
+                     JOIN reaction_instance ri
+                       ON ge.source_node_id='reaction:'||ri.reaction_id
+                       OR ge.target_node_id='reaction:'||ri.reaction_id
+                     WHERE ge.source_table='reaction_participant'
+                       AND ge.validation_status='validated'
+                       AND ri.reaction_id IN ({reaction_marks})
+                       AND ge.predicate IN ('reactant','consumed','product','produced')
+                     ORDER BY ge.source_node_id,ge.target_node_id,ge.predicate""",
+                sorted(selected_reactions),
+            )]
+            for edge in curated:
+                reaction_id = (
+                    edge["source_node_id"] if edge["source_node_id"].startswith("reaction:")
+                    else edge["target_node_id"]
+                ).removeprefix("reaction:")
+                properties = json.loads(edge["properties_json"] or "{}")
+                properties.update({
+                    "process_class": selected_reactions[reaction_id],
+                    "chemistry_validation": "pending_atom_mapping",
+                })
+                edge["properties_json"] = json.dumps(properties, sort_keys=True)
+            raw_edges.extend(curated)
+            node_ids.update(edge[key] for edge in curated for key in ("source_node_id", "target_node_id"))
+
+        # A multi-input procedure joins each input to the same product row.
+        # Deduplicate the shared product edge before contracting the junction,
+        # otherwise the visual route graph multiplies identical transitions.
+        raw_edges = list({edge["edge_id"]: edge for edge in raw_edges}.values())
+
+        if node_ids:
+            marks = ",".join("?" for _ in node_ids)
+            nodes = [dict(row) for row in db.execute(
+                f"SELECT * FROM graph_node WHERE node_id IN ({marks})", sorted(node_ids),
+            )]
+        else:
+            nodes = []
+
+    metadata = {
+        "process_layer": process_layer,
+        "candidate_pair_class_counts": dict(sorted(accounting.items())),
+        "promoted_reaction_class_counts": dict(sorted(promoted_accounting.items())),
+        "automatic_acceptance": False,
+        "note": (
+            "Core synthesis contains promoted synthetic reaction records. Unpromoted "
+            "structure-resolved extractions and supporting manufacturing are separate."
+        ),
+    }
+    if not collapsed:
+        return {"nodes": nodes, "edges": raw_edges, "truncated": False, **metadata}
+
     incoming: dict[str, list[dict]] = {}
     outgoing: dict[str, list[dict]] = {}
-    for edge in edges:
-        if edge["predicate"] == "consumed":
+    for edge in raw_edges:
+        if edge["predicate"] in {"reactant", "consumed"}:
             incoming.setdefault(edge["target_node_id"], []).append(edge)
-        else:
+        elif edge["predicate"] in {"product", "produced"}:
             outgoing.setdefault(edge["source_node_id"], []).append(edge)
     material_ids: set[str] = set()
     transitions: list[dict] = []
     for junction_id in sorted(incoming.keys() & outgoing.keys()):
         for consumed in incoming[junction_id]:
             for produced in outgoing[junction_id]:
+                if consumed["source_node_id"] == produced["target_node_id"] and process_layer in {"core", "candidates"}:
+                    continue
                 material_ids.update((consumed["source_node_id"], produced["target_node_id"]))
-                validation = "validated" if (
-                    consumed["validation_status"] == "validated"
-                    and produced["validation_status"] == "validated"
-                ) else "unresolved"
+                properties = json.loads(produced["properties_json"] or "{}")
+                properties.setdefault("process_class", "synthetic_transformation")
+                properties.update({
+                    "via_node_id": junction_id,
+                    "consumed_edge_id": consumed["edge_id"],
+                    "produced_edge_id": produced["edge_id"],
+                })
+                values = [value for value in (consumed["confidence"], produced["confidence"]) if value is not None]
                 transitions.append({
                     "edge_id": f"route-transition:{junction_id}:{consumed['edge_id']}:{produced['edge_id']}",
                     "source_node_id": consumed["source_node_id"],
                     "target_node_id": produced["target_node_id"],
-                    "predicate": "transforms_to",
-                    "source_table": "route_projection",
-                    "source_record_id": junction_id,
-                    "validation_status": validation,
-                    "review_status": "needs_review",
-                    "confidence": None,
+                    "predicate": "transforms_to" if properties["process_class"].startswith("synthetic_transformation") else "manufacturing_process",
+                    "source_table": "route_projection", "source_record_id": junction_id,
+                    "validation_status": "validated",
+                    "review_status": (
+                        "accepted" if consumed["review_status"] == produced["review_status"] == "accepted"
+                        else "needs_review"
+                    ),
+                    "confidence": min(values) if values else None,
                     "evidence_span_id": produced["evidence_span_id"] or consumed["evidence_span_id"],
-                    "properties_json": json.dumps({
-                        "via_node_id": junction_id,
-                        "consumed_edge_id": consumed["edge_id"],
-                        "produced_edge_id": produced["edge_id"],
-                    }, sort_keys=True),
+                    "properties_json": json.dumps(properties, sort_keys=True),
                 })
     material_nodes = [node for node in nodes if node["node_id"] in material_ids]
-    return {"nodes": material_nodes, "edges": transitions, "truncated": False,
-            "automatic_acceptance": False,
-            "note": "Direct material transitions; each edge retains its procedure/reaction evidence."}
+    return {"nodes": material_nodes, "edges": transitions, "truncated": False, **metadata}
 
 
 def graph_neighborhood(node_id: str, depth: int, node_limit: int, edge_limit: int,
