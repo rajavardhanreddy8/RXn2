@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
@@ -40,6 +41,63 @@ class ProvisionalReactionValidation:
 
     def as_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class AtomConservationScreen:
+    status: str
+    reason: str
+    missing_product_atoms: dict[str, int]
+    atom_mapping_status: str = "pending"
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+def screen_atom_conservation(
+    consumed_smiles: list[str], product_smiles: str | None,
+) -> AtomConservationScreen:
+    """Conservative pre-mapping gate based on explicit heavy-atom inventory.
+
+    A pass only proves that the recorded consumed structures could supply every
+    product element. It is not atom mapping, reaction balancing, or approval.
+    """
+    if not consumed_smiles or not product_smiles:
+        return AtomConservationScreen("unresolved", "missing_resolved_structure", {})
+    if Chem is None:
+        return AtomConservationScreen("unresolved", "rdkit_unavailable", {})
+    try:
+        inputs = [Chem.MolFromSmiles(value) for value in consumed_smiles]
+        product = Chem.MolFromSmiles(product_smiles)
+        if product is None or any(mol is None for mol in inputs):
+            raise ValueError("unparseable structure")
+        input_canonical = {
+            Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True) for mol in inputs
+        }
+        product_canonical = Chem.MolToSmiles(
+            product, canonical=True, isomericSmiles=True
+        )
+    except Exception:
+        return AtomConservationScreen("rejected", "unparseable_resolved_structure", {})
+    if product_canonical in input_canonical:
+        return AtomConservationScreen("rejected", "self_transformation", {})
+    available = Counter(
+        atom.GetSymbol() for mol in inputs for atom in mol.GetAtoms()
+        if atom.GetAtomicNum() > 1
+    )
+    required = Counter(
+        atom.GetSymbol() for atom in product.GetAtoms() if atom.GetAtomicNum() > 1
+    )
+    missing = {
+        element: required_count - available[element]
+        for element, required_count in sorted(required.items())
+        if required_count > available[element]
+    }
+    if missing:
+        return AtomConservationScreen(
+            "unresolved", "missing_consumed_atom_source", missing
+        )
+    return AtomConservationScreen("validated", "element_conservation_passed", {})
 
 
 def validate_provisional_reaction(

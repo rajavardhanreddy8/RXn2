@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from xml.sax.saxutils import escape
 
 from .db import connect, transaction
+from .chemistry import screen_atom_conservation
 
 
 def _node_id(kind: str, record_id: object) -> str:
@@ -319,7 +320,7 @@ def graph_route_map(
     """
     if process_layer not in {"core", "candidates", "support", "all"}:
         raise ValueError("process_layer must be core, candidates, support or all")
-    del statuses  # A UI filter must never weaken the exact-identity route gate.
+    visible_statuses = statuses or {"validated", "unresolved"}
 
     with connect() as db:
         rows = db.execute(
@@ -364,6 +365,7 @@ def graph_route_map(
         node_ids: set[str] = set()
         accounting = Counter()
         promoted_accounting = Counter()
+        promoted_validation = Counter()
         for row in rows:
             consumed_key = _structure_key(row, "consumed")
             produced_key = _structure_key(row, "produced")
@@ -394,7 +396,7 @@ def graph_route_map(
                     "source_node_id": consumed_id, "target_node_id": procedure_id,
                     "predicate": "consumed", "source_table": "relation_candidate",
                     "source_record_id": row["consumed_relation_id"],
-                    "validation_status": "validated", "review_status": "needs_review",
+                    "validation_status": "unresolved", "review_status": "needs_review",
                     "confidence": row["confidence"], "evidence_span_id": row["evidence_span_id"],
                     "properties_json": properties,
                 },
@@ -403,7 +405,7 @@ def graph_route_map(
                     "source_node_id": procedure_id, "target_node_id": produced_id,
                     "predicate": "produced", "source_table": "relation_candidate",
                     "source_record_id": row["produced_relation_id"],
-                    "validation_status": "validated", "review_status": "needs_review",
+                    "validation_status": "unresolved", "review_status": "needs_review",
                     "confidence": row["confidence"], "evidence_span_id": row["evidence_span_id"],
                     "properties_json": properties,
                 },
@@ -412,7 +414,7 @@ def graph_route_map(
         # Promoted reaction instances are classified independently from the
         # loose relation candidates. They remain provisional until chemistry
         # review, but their route/display class is deterministic.
-        curated_classes: dict[str, str] = {}
+        curated_records: dict[str, dict] = {}
         for row in db.execute(
             """SELECT ri.reaction_id,
                       ci.inchi_key consumed_inchi_key,co.inchi_key produced_inchi_key,
@@ -433,23 +435,64 @@ def graph_route_map(
                         WHERE px.reaction_id=ri.reaction_id
                           AND px.role IN ('product','produced'))=1"""
         ):
+            record = curated_records.setdefault(row["reaction_id"], {
+                "consumed_keys": [], "consumed_smiles": [],
+                "produced_key": _structure_key(row, "produced"),
+                "produced_smiles": row["produced_smiles"],
+            })
             consumed_key = _structure_key(row, "consumed")
-            produced_key = _structure_key(row, "produced")
-            if not consumed_key or not produced_key:
-                accounting["promoted_structure_missing"] += 1
+            if consumed_key and consumed_key not in record["consumed_keys"]:
+                record["consumed_keys"].append(consumed_key)
+            if row["consumed_smiles"] and row["consumed_smiles"] not in record["consumed_smiles"]:
+                record["consumed_smiles"].append(row["consumed_smiles"])
+
+        curated_metadata: dict[str, dict] = {}
+        for reaction_id, record in curated_records.items():
+            if not record["consumed_keys"] or not record["produced_key"]:
+                promoted_validation["missing_resolved_structure"] += 1
                 continue
-            process_class = _process_class(consumed_key, produced_key)
+            process_class = "synthetic_transformation_candidate"
+            product_parts = set((record["produced_smiles"] or "").split("."))
+            if any(smiles in product_parts for smiles in record["consumed_smiles"]):
+                process_class = "salt_stereoisomer_or_solid_form"
+            for consumed_key in record["consumed_keys"]:
+                candidate_class = _process_class(consumed_key, record["produced_key"])
+                if candidate_class != "synthetic_transformation_candidate":
+                    process_class = candidate_class
+                    break
             if process_class == "synthetic_transformation_candidate":
                 process_class = "synthetic_transformation"
-            curated_classes[row["reaction_id"]] = process_class
-        promoted_accounting.update(curated_classes.values())
+            screen = screen_atom_conservation(
+                record["consumed_smiles"], record["produced_smiles"]
+            )
+            curated_metadata[reaction_id] = {
+                "process_class": process_class,
+                "chemistry_validation": screen.status,
+                "chemistry_validation_reason": screen.reason,
+                "missing_product_atoms": screen.missing_product_atoms,
+                "atom_mapping_status": screen.atom_mapping_status,
+            }
+            promoted_accounting[process_class] += 1
+            promoted_validation[screen.status] += 1
 
         selected_reactions = {
-            reaction_id: process_class
-            for reaction_id, process_class in curated_classes.items()
+            reaction_id: metadata
+            for reaction_id, metadata in curated_metadata.items()
             if process_layer == "all"
-            or (process_layer == "core" and process_class == "synthetic_transformation")
-            or (process_layer == "support" and process_class != "synthetic_transformation")
+            or (
+                process_layer == "core"
+                and metadata["process_class"] == "synthetic_transformation"
+                and metadata["chemistry_validation"] == "validated"
+            )
+            or (
+                process_layer == "candidates"
+                and metadata["process_class"] == "synthetic_transformation"
+                and metadata["chemistry_validation"] != "validated"
+            )
+            or (
+                process_layer == "support"
+                and metadata["process_class"] != "synthetic_transformation"
+            )
         }
         if selected_reactions:
             reaction_marks = ",".join("?" for _ in selected_reactions)
@@ -471,18 +514,23 @@ def graph_route_map(
                     else edge["target_node_id"]
                 ).removeprefix("reaction:")
                 properties = json.loads(edge["properties_json"] or "{}")
-                properties.update({
-                    "process_class": selected_reactions[reaction_id],
-                    "chemistry_validation": "pending_atom_mapping",
-                })
+                properties.update(selected_reactions[reaction_id])
                 edge["properties_json"] = json.dumps(properties, sort_keys=True)
+                screen_status = selected_reactions[reaction_id]["chemistry_validation"]
+                edge["validation_status"] = (
+                    screen_status if screen_status in {"validated", "unresolved", "rejected"}
+                    else "unresolved"
+                )
             raw_edges.extend(curated)
             node_ids.update(edge[key] for edge in curated for key in ("source_node_id", "target_node_id"))
 
         # A multi-input procedure joins each input to the same product row.
         # Deduplicate the shared product edge before contracting the junction,
         # otherwise the visual route graph multiplies identical transitions.
-        raw_edges = list({edge["edge_id"]: edge for edge in raw_edges}.values())
+        raw_edges = [
+            edge for edge in {edge["edge_id"]: edge for edge in raw_edges}.values()
+            if edge["validation_status"] in visible_statuses
+        ]
 
         if node_ids:
             marks = ",".join("?" for _ in node_ids)
@@ -496,6 +544,7 @@ def graph_route_map(
         "process_layer": process_layer,
         "candidate_pair_class_counts": dict(sorted(accounting.items())),
         "promoted_reaction_class_counts": dict(sorted(promoted_accounting.items())),
+        "promoted_validation_counts": dict(sorted(promoted_validation.items())),
         "automatic_acceptance": False,
         "note": (
             "Core synthesis contains promoted synthetic reaction records. Unpromoted "
@@ -534,7 +583,11 @@ def graph_route_map(
                     "target_node_id": produced["target_node_id"],
                     "predicate": "transforms_to" if properties["process_class"].startswith("synthetic_transformation") else "manufacturing_process",
                     "source_table": "route_projection", "source_record_id": junction_id,
-                    "validation_status": "validated",
+                    "validation_status": (
+                        properties.get("chemistry_validation")
+                        if properties.get("chemistry_validation") in {"validated", "unresolved", "rejected"}
+                        else "unresolved"
+                    ),
                     "review_status": (
                         "accepted" if consumed["review_status"] == produced["review_status"] == "accepted"
                         else "needs_review"
