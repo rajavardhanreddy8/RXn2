@@ -830,6 +830,27 @@ def compound_structure(compound_id: str) -> dict:
             "inchi_key": row["inchi_key"], **graph}
 
 
+@app.get("/api/chemistry/mapping/{reaction_id:path}")
+def reaction_atom_mapping(reaction_id: str) -> dict:
+    with connect() as db:
+        reaction = db.execute(
+            "SELECT reaction_id,reaction_name,review_status FROM reaction_instance WHERE reaction_id=?",
+            (reaction_id,),
+        ).fetchone()
+        if not reaction:
+            raise HTTPException(status_code=404, detail="Reaction not found")
+        mapping = db.execute(
+            """SELECT * FROM reaction_atom_mapping WHERE reaction_id=?
+               ORDER BY created_at DESC LIMIT 1""",
+            (reaction_id,),
+        ).fetchone()
+    return {
+        "reaction": dict(reaction),
+        "mapping": dict(mapping) if mapping else None,
+        "automatic_acceptance": False,
+    }
+
+
 def _graph_statuses(value: str) -> set[str]:
     allowed = {"validated", "unresolved", "rejected"}
     statuses = {part.strip() for part in value.split(",") if part.strip()}

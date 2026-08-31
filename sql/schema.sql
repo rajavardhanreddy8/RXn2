@@ -492,6 +492,32 @@ CREATE TABLE IF NOT EXISTS reaction_participant (
   PRIMARY KEY (reaction_id, compound_id, role)
 );
 
+CREATE TABLE IF NOT EXISTS reaction_atom_mapping (
+  mapping_id TEXT PRIMARY KEY,
+  reaction_id TEXT NOT NULL REFERENCES reaction_instance(reaction_id),
+  input_sha256 TEXT NOT NULL,
+  unmapped_reaction_smiles TEXT NOT NULL,
+  mapped_reaction_smiles TEXT,
+  mapper_name TEXT NOT NULL,
+  mapper_version TEXT NOT NULL,
+  model_confidence REAL CHECK (
+    model_confidence IS NULL OR (model_confidence >= 0 AND model_confidence <= 1)
+  ),
+  validation_status TEXT NOT NULL CHECK (
+    validation_status IN ('validated', 'unresolved', 'rejected')
+  ),
+  validation_reason TEXT NOT NULL,
+  product_atom_coverage REAL NOT NULL CHECK (
+    product_atom_coverage >= 0 AND product_atom_coverage <= 1
+  ),
+  mapping_details_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE (reaction_id, mapper_name, mapper_version, input_sha256)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reaction_atom_mapping_status
+ON reaction_atom_mapping(validation_status, reaction_id);
+
 CREATE TABLE IF NOT EXISTS reaction_condition (
   condition_id TEXT PRIMARY KEY,
   reaction_id TEXT NOT NULL REFERENCES reaction_instance(reaction_id),

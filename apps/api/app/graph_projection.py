@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 from collections import Counter, deque
 from datetime import UTC, datetime
@@ -366,6 +367,7 @@ def graph_route_map(
         accounting = Counter()
         promoted_accounting = Counter()
         promoted_validation = Counter()
+        atom_mapping_counts = Counter()
         for row in rows:
             consumed_key = _structure_key(row, "consumed")
             produced_key = _structure_key(row, "produced")
@@ -465,15 +467,34 @@ def graph_route_map(
             screen = screen_atom_conservation(
                 record["consumed_smiles"], record["produced_smiles"]
             )
+            reaction_smiles = f"{'.'.join(sorted(record['consumed_smiles']))}>>{record['produced_smiles']}"
+            input_sha256 = hashlib.sha256(reaction_smiles.encode("utf-8")).hexdigest()
+            mapping = db.execute(
+                """SELECT validation_status,validation_reason,model_confidence,
+                          product_atom_coverage,mapper_name,mapper_version
+                     FROM reaction_atom_mapping
+                     WHERE reaction_id=? AND input_sha256=?
+                     ORDER BY created_at DESC LIMIT 1""",
+                (reaction_id, input_sha256),
+            ).fetchone()
+            mapping_status = mapping["validation_status"] if mapping else "unresolved"
+            mapping_reason = mapping["validation_reason"] if mapping else "atom_mapping_not_run"
             curated_metadata[reaction_id] = {
                 "process_class": process_class,
                 "chemistry_validation": screen.status,
                 "chemistry_validation_reason": screen.reason,
                 "missing_product_atoms": screen.missing_product_atoms,
-                "atom_mapping_status": screen.atom_mapping_status,
+                "atom_mapping_status": mapping_status,
+                "atom_mapping_reason": mapping_reason,
+                "atom_mapping_confidence": mapping["model_confidence"] if mapping else None,
+                "product_atom_coverage": mapping["product_atom_coverage"] if mapping else 0.0,
+                "atom_mapper": (
+                    f"{mapping['mapper_name']}:{mapping['mapper_version']}" if mapping else None
+                ),
             }
             promoted_accounting[process_class] += 1
             promoted_validation[screen.status] += 1
+            atom_mapping_counts[mapping_status] += 1
 
         selected_reactions = {
             reaction_id: metadata
@@ -483,11 +504,15 @@ def graph_route_map(
                 process_layer == "core"
                 and metadata["process_class"] == "synthetic_transformation"
                 and metadata["chemistry_validation"] == "validated"
+                and metadata["atom_mapping_status"] == "validated"
             )
             or (
                 process_layer == "candidates"
                 and metadata["process_class"] == "synthetic_transformation"
-                and metadata["chemistry_validation"] != "validated"
+                and (
+                    metadata["chemistry_validation"] != "validated"
+                    or metadata["atom_mapping_status"] != "validated"
+                )
             )
             or (
                 process_layer == "support"
@@ -517,8 +542,10 @@ def graph_route_map(
                 properties.update(selected_reactions[reaction_id])
                 edge["properties_json"] = json.dumps(properties, sort_keys=True)
                 screen_status = selected_reactions[reaction_id]["chemistry_validation"]
+                mapping_status = selected_reactions[reaction_id]["atom_mapping_status"]
                 edge["validation_status"] = (
-                    screen_status if screen_status in {"validated", "unresolved", "rejected"}
+                    "rejected" if "rejected" in {screen_status, mapping_status}
+                    else "validated" if screen_status == mapping_status == "validated"
                     else "unresolved"
                 )
             raw_edges.extend(curated)
@@ -545,6 +572,7 @@ def graph_route_map(
         "candidate_pair_class_counts": dict(sorted(accounting.items())),
         "promoted_reaction_class_counts": dict(sorted(promoted_accounting.items())),
         "promoted_validation_counts": dict(sorted(promoted_validation.items())),
+        "atom_mapping_counts": dict(sorted(atom_mapping_counts.items())),
         "automatic_acceptance": False,
         "note": (
             "Core synthesis contains promoted synthetic reaction records. Unpromoted "

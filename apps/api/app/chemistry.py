@@ -54,6 +54,78 @@ class AtomConservationScreen:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class MappedReactionValidation:
+    status: str
+    reason: str
+    product_atom_coverage: float
+    details: dict
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+def _canonical_reaction_side(side: str) -> list[str]:
+    values = []
+    for fragment in side.split("."):
+        mol = Chem.MolFromSmiles(fragment)
+        if mol is None:
+            raise ValueError("unparseable reaction fragment")
+        for atom in mol.GetAtoms():
+            atom.SetAtomMapNum(0)
+        values.append(Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True))
+    return sorted(values)
+
+
+def validate_mapped_reaction(
+    unmapped_reaction_smiles: str, mapped_reaction_smiles: str | None,
+) -> MappedReactionValidation:
+    """Verify mapping completeness and that mapping did not change structures."""
+    if Chem is None:
+        return MappedReactionValidation("unresolved", "rdkit_unavailable", 0.0, {})
+    if not mapped_reaction_smiles:
+        return MappedReactionValidation("unresolved", "mapping_missing", 0.0, {})
+    try:
+        unmapped_left, unmapped_right = unmapped_reaction_smiles.split(">>")
+        mapped_left, mapped_right = mapped_reaction_smiles.split(">>")
+        if _canonical_reaction_side(unmapped_left) != _canonical_reaction_side(mapped_left):
+            return MappedReactionValidation("rejected", "mapped_reactants_changed", 0.0, {})
+        if _canonical_reaction_side(unmapped_right) != _canonical_reaction_side(mapped_right):
+            return MappedReactionValidation("rejected", "mapped_product_changed", 0.0, {})
+        reactants = Chem.MolFromSmiles(mapped_left)
+        product = Chem.MolFromSmiles(mapped_right)
+        if reactants is None or product is None:
+            raise ValueError("unparseable mapped reaction")
+    except (ValueError, TypeError):
+        return MappedReactionValidation("rejected", "invalid_mapped_reaction", 0.0, {})
+
+    reactant_maps = [atom.GetAtomMapNum() for atom in reactants.GetAtoms()]
+    product_maps = [atom.GetAtomMapNum() for atom in product.GetAtoms()]
+    mapped_product = [value for value in product_maps if value > 0]
+    coverage = len(mapped_product) / max(len(product_maps), 1)
+    if len(set(value for value in reactant_maps if value > 0)) != len(
+        [value for value in reactant_maps if value > 0]
+    ):
+        return MappedReactionValidation("rejected", "duplicate_reactant_atom_map", coverage, {})
+    if len(set(mapped_product)) != len(mapped_product):
+        return MappedReactionValidation("rejected", "duplicate_product_atom_map", coverage, {})
+    if coverage < 1.0:
+        return MappedReactionValidation(
+            "unresolved", "incomplete_product_atom_mapping", coverage,
+            {"mapped_product_atoms": len(mapped_product), "product_atoms": len(product_maps)},
+        )
+    missing = sorted(set(mapped_product) - set(reactant_maps))
+    if missing:
+        return MappedReactionValidation(
+            "unresolved", "product_atom_maps_absent_from_reactants", coverage,
+            {"missing_map_numbers": missing},
+        )
+    return MappedReactionValidation(
+        "validated", "complete_structure_preserving_atom_map", coverage,
+        {"mapped_product_atoms": len(mapped_product), "product_atoms": len(product_maps)},
+    )
+
+
 def screen_atom_conservation(
     consumed_smiles: list[str], product_smiles: str | None,
 ) -> AtomConservationScreen:

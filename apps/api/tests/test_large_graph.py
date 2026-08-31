@@ -69,15 +69,20 @@ def test_large_graph_queries_are_bounded(tmp_path, monkeypatch):
     overview = graph_overview()
     compound_upstream = graph_overview("compound", {"validated", "unresolved"}, "incoming", 1)
     compound_downstream = graph_overview("compound", {"validated", "unresolved"}, "outgoing", 1)
-    route_map = graph_route_map({"validated", "unresolved"})
-    raw_route_map = graph_route_map({"validated", "unresolved"}, collapsed=False)
+    core_route_map = graph_route_map({"validated", "unresolved"})
+    route_map = graph_route_map(
+        {"validated", "unresolved"}, process_layer="candidates"
+    )
+    raw_route_map = graph_route_map(
+        {"validated", "unresolved"}, collapsed=False, process_layer="candidates"
+    )
     results = graph_search("benzamide", None, 10)
     assert stats["node_count"] > 0 and stats["edge_count"] > 0
     assert overview["nodes"] and overview["edges"]
     assert any(node["id"] == "compound" for node in compound_upstream["nodes"])
     assert any(edge["target"] == "compound" for edge in compound_upstream["edges"])
     assert any(edge["source"] == "compound" for edge in compound_downstream["edges"])
-    assert route_map["edges"]
+    assert not core_route_map["edges"]  # No atom mapping exists in the fixture.
     assert route_map["edges"]
     assert all(edge["predicate"] == "transforms_to" for edge in route_map["edges"])
     assert len({edge["edge_id"] for edge in route_map["edges"]}) == len(route_map["edges"])

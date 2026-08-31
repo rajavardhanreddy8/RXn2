@@ -1,0 +1,6 @@
+rxnmapper==0.4.2
+rxn-chem-utils==1.6.0
+rxn-utils==2.0.0
+transformers==4.45.1
+tokenizers==0.20.3
+huggingface-hub==0.25.2
