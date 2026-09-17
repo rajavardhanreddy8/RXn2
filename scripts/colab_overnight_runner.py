@@ -12,7 +12,12 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-DRIVE_ROOT = Path("/content/drive/MyDrive/RXN2/relation-extraction/overnight-v2")
+DRIVE_ROOT = Path(
+    os.environ.get(
+        "RXN2_RELATION_DRIVE_ROOT",
+        "/content/drive/MyDrive/RXN2/relation-extraction/overnight-v3",
+    )
+)
 LOCAL_ROOT = Path("/content/rxn2-relation-overnight")
 CHECKPOINT_RECORDS = 10
 CHECKPOINT_SECONDS = 120

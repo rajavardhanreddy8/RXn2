@@ -118,7 +118,7 @@ def apply(db_path: Path, prepared: list[tuple[dict, RelationExtraction]], failur
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, default=ROOT / "data" / "curated" / "rxn2-provisional.sqlite")
-    parser.add_argument("--run-root", type=Path, default=Path(r"I:\My Drive\RXN2\relation-extraction\overnight-v2"))
+    parser.add_argument("--run-root", type=Path, default=Path(r"I:\My Drive\RXN2\relation-extraction\overnight-v3"))
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     prepared, failures = validate_all(args.db, args.run_root)

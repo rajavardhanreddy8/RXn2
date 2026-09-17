@@ -115,7 +115,7 @@ def prepare(db_path: Path, run_root: Path, maximum_chars: int) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, default=Path("data/curated/rxn2-provisional.sqlite"))
-    parser.add_argument("--run-root", type=Path, default=Path(r"I:\My Drive\RXN2\relation-extraction\overnight-v2"))
+    parser.add_argument("--run-root", type=Path, default=Path(r"I:\My Drive\RXN2\relation-extraction\overnight-v3"))
     parser.add_argument("--maximum-chars", type=int, default=12000)
     args = parser.parse_args()
     print(json.dumps(prepare(args.db, args.run_root, args.maximum_chars), indent=2, sort_keys=True))
