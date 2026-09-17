@@ -136,7 +136,20 @@ def stable_id(prefix: str, *parts: object) -> str:
 
 
 def request_payload(provider: str, model: str, source_text: str) -> dict:
-    strict_schema = provider in {"groq", "huggingface"} or model in STRICT_SCHEMA_MODELS
+    # Groq GPT-OSS accepts JSON-object mode consistently across the complete
+    # RXN2 schema.  RXN2 performs its own Pydantic, quote, offset, and
+    # chemistry checks after generation, so a provider-side strict-schema
+    # rejection must never stall the queue.  Strict Groq mode remains an
+    # explicit opt-in for controlled compatibility testing.
+    strict_schema = (
+        provider == "huggingface"
+        or model in STRICT_SCHEMA_MODELS
+        or (
+            provider == "groq"
+            and os.getenv("RELATION_GROQ_STRICT_SCHEMA", "false").strip().casefold()
+            in {"1", "true", "yes"}
+        )
+    )
     payload = {
         "model": model,
         "temperature": 0,

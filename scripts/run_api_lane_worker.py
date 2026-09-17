@@ -8,7 +8,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
 from apps.api.app import db as db_module
 from apps.api.app.relations import process_evidence_span
-TRANSIENT = ("429", "rate limit", "timeout", "timed out", "503", "temporarily", "model is busy", "completion_error", "unprocessable entity")
+# Older API-lane attempts used provider-side strict schema mode with Groq and
+# received HTTP 400 before generation.  Treat those historical requests as
+# retryable now that the client uses JSON-object mode plus local validation.
+TRANSIENT = ("429", "rate limit", "timeout", "timed out", "503", "temporarily", "model is busy", "completion_error", "unprocessable entity", "400 bad request")
 
 def load_env(path: Path):
     if not path.is_file(): return
