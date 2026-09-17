@@ -37,7 +37,42 @@ def atomic_text(path: Path, value: str) -> None:
     os.replace(partial, path)
 
 
-def prepare(db_path: Path, run_root: Path, maximum_chars: int) -> dict:
+def launcher_notebook(colab_run_root: str) -> dict:
+    """Return a minimal notebook that runs only this immutable Drive bundle."""
+    return {
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {
+            "colab": {"name": "RXN2 relation extraction"},
+            "kernelspec": {"display_name": "Python 3", "name": "python3"},
+        },
+        "cells": [
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    "# RXN2 resumable relation extraction\\n",
+                    "Mount Drive, then run the next cell. Results checkpoint into this bundle."
+                ],
+            },
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": [
+                    "from google.colab import drive\\n",
+                    "drive.mount('/content/drive')\\n",
+                    "import os, runpy\\n",
+                    f"os.environ['RXN2_RELATION_DRIVE_ROOT'] = {colab_run_root!r}\\n",
+                    f"runpy.run_path({(colab_run_root + '/runner/colab_overnight_runner.py')!r}, run_name='__main__')\\n",
+                ],
+            },
+        ],
+    }
+
+
+def prepare(db_path: Path, run_root: Path, maximum_chars: int, colab_run_root: str) -> dict:
     query = """
         SELECT p.pipeline_job_id,p.result_json,e.evidence_span_id,
                e.publication_number,e.evidence_text,e.source_url
@@ -89,6 +124,8 @@ def prepare(db_path: Path, run_root: Path, maximum_chars: int) -> dict:
         shutil.copyfile(source, partial_runtime)
         os.replace(partial_runtime, destination)
         runtime_paths[name] = destination
+    launcher_path = run_root / "launcher" / "RXN2_relation_extraction.ipynb"
+    atomic_text(launcher_path, json.dumps(launcher_notebook(colab_run_root), indent=2) + "\n")
     categories = Counter(job["candidate_status"] for job in jobs)
     manifest = {
         "created_at": datetime.now(UTC).isoformat(),
@@ -104,6 +141,7 @@ def prepare(db_path: Path, run_root: Path, maximum_chars: int) -> dict:
             "jobs/relation-prompt.txt": sha256_file(prompt_path),
             "runner/colab_relation_common.py": sha256_file(runtime_paths["colab_relation_common.py"]),
             "runner/colab_overnight_runner.py": sha256_file(runtime_paths["colab_overnight_runner.py"]),
+            "launcher/RXN2_relation_extraction.ipynb": sha256_file(launcher_path),
         },
         "legacy_results": "../results/results.jsonl",
         "legacy_results_policy": "preserved_unvalidated_not_counted",
@@ -116,9 +154,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, default=Path("data/curated/rxn2-provisional.sqlite"))
     parser.add_argument("--run-root", type=Path, default=Path(r"I:\My Drive\RXN2\relation-extraction\overnight-v3"))
+    parser.add_argument("--colab-run-root", default="/content/drive/MyDrive/RXN2/relation-extraction/overnight-v3")
     parser.add_argument("--maximum-chars", type=int, default=12000)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.db, args.run_root, args.maximum_chars), indent=2, sort_keys=True))
+    print(json.dumps(prepare(args.db, args.run_root, args.maximum_chars, args.colab_run_root), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
