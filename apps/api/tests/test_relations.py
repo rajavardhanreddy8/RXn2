@@ -14,6 +14,7 @@ from apps.api.app.relations import (
     provider_specs,
     provisional_graph,
     request_payload,
+    schema_repair_payload,
 )
 from apps.api.app.seed import seed_demo
 
@@ -122,6 +123,16 @@ def test_groq_legacy_project_key_is_a_single_provider_fallback(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setenv("q_api_key", "test-key")
     assert provider_specs("groq") == [("groq", "openai/gpt-oss-20b")]
+
+
+def test_schema_repair_keeps_source_and_failed_candidate_separate():
+    payload = schema_repair_payload(
+        "groq", "openai/gpt-oss-20b", "Product was obtained.", '{"role":"product"}'
+    )
+    assert payload["response_format"]["json_schema"]["strict"] is True
+    assert "SOURCE_TEXT:\nProduct was obtained." in payload["messages"][1]["content"]
+    assert 'INVALID_CANDIDATE:\n{"role":"product"}' in payload["messages"][1]["content"]
+    assert "Do not add facts" in payload["messages"][0]["content"]
 
 
 def test_candidate_validation_builds_only_provisional_edges(relation_database):

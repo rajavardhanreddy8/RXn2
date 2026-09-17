@@ -101,6 +101,11 @@ role is consumed, produced, reagent, catalyst, solvent, or workup.
 Each fact is {fact_type, value_text, evidence_quote, explicit, uncertain, confidence};
 fact_type is condition, quantity, or outcome. Use [] when no explicit items exist.
 """
+SCHEMA_REPAIR_PROMPT = """Repair the candidate JSON so it matches the required schema.
+Preserve only facts supported by SOURCE_TEXT. Do not add facts, structures, names, or
+quantities. Material roles must be consumed, produced, reagent, catalyst, solvent, or
+workup; map an explicit product role to produced. Return only the repaired JSON object.
+"""
 
 def openrouter_key() -> str | None:
     """Use one configured OpenRouter project key; never rotate keys for quota."""
@@ -163,6 +168,20 @@ def request_payload(provider: str, model: str, source_text: str) -> dict:
             "data_collection": "deny",
             "allow_fallbacks": True,
         }
+    return payload
+
+
+def schema_repair_payload(
+    provider: str, model: str, source_text: str, failed_generation: str
+) -> dict:
+    payload = request_payload(provider, model, source_text)
+    payload["messages"] = [
+        {"role": "system", "content": SYSTEM_PROMPT + "\n" + SCHEMA_REPAIR_PROMPT},
+        {
+            "role": "user",
+            "content": "SOURCE_TEXT:\n" + source_text + "\n\nINVALID_CANDIDATE:\n" + failed_generation,
+        },
+    ]
     return payload
 
 
@@ -267,6 +286,20 @@ async def call_provider(
                             if attempt < 3:
                                 await asyncio.sleep(delay)
                                 continue
+                        if response.status_code == 400:
+                            try:
+                                error = response.json().get("error", {})
+                            except ValueError:
+                                error = {}
+                            failed_generation = error.get("failed_generation")
+                            if error.get("code") == "json_validate_failed" and failed_generation:
+                                response = await client.post(
+                                    spec["url"],
+                                    headers=headers,
+                                    json=schema_repair_payload(
+                                        provider, model, source_text, failed_generation
+                                    ),
+                                )
                         response.raise_for_status()
                         raw = response.json()
                         content = raw["choices"][0]["message"]["content"]

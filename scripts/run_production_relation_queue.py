@@ -85,6 +85,7 @@ def main() -> None:
     parser.add_argument("--provider", choices=("openrouter", "groq"), default="openrouter")
     parser.add_argument("--model", required=True, help="The explicitly selected provider model.")
     parser.add_argument("--max-jobs", type=int, default=1)
+    parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--pause-seconds", type=float, default=2)
     args = parser.parse_args()
     load_env(args.env_file)
@@ -95,32 +96,45 @@ def main() -> None:
         raise SystemExit("Groq is not configured in the env file.")
     if args.provider == "openrouter" and not args.model.endswith(":free"):
         raise SystemExit("Only explicitly free OpenRouter models are allowed.")
+    if not 1 <= args.concurrency <= 8:
+        raise SystemExit("Concurrency must be between 1 and 8.")
 
-    attempted = 0
-    succeeded = 0
-    while attempted < args.max_jobs:
-        job = claim(args.db)
-        if not job:
-            print(json.dumps({"state": "queue_empty", "counts": state(args.db)}))
-            return
-        attempted += 1
+    async def execute(job: dict) -> bool:
         payload = json.loads(job["result_json"])
         try:
-            result = asyncio.run(
-                process_evidence_span(
-                    payload["evidence_span_id"], provider=args.provider, model=args.model
-                )
+            result = await process_evidence_span(
+                payload["evidence_span_id"], provider=args.provider, model=args.model
             )
             payload["result"] = result
             finish(args.db, job["pipeline_job_id"], payload, "succeeded", None)
-            succeeded += 1
-            print(json.dumps({"attempted": attempted, "succeeded": succeeded, "counts": state(args.db)}))
+            return True
         except Exception as error:
             # Preserve the failure for diagnosis.  A later explicit retry may requeue it.
             finish(args.db, job["pipeline_job_id"], payload, "failed", str(error))
             print(json.dumps({"failed": job["pipeline_job_id"], "error": str(error)[:500]}))
-        if attempted < args.max_jobs:
-            time.sleep(max(0, args.pause_seconds))
+            return False
+
+    async def run() -> None:
+        attempted = 0
+        succeeded = 0
+        while attempted < args.max_jobs:
+            jobs = []
+            while len(jobs) < args.concurrency and attempted + len(jobs) < args.max_jobs:
+                job = claim(args.db)
+                if not job:
+                    break
+                jobs.append(job)
+            if not jobs:
+                print(json.dumps({"state": "queue_empty", "counts": state(args.db)}))
+                return
+            outcomes = await asyncio.gather(*(execute(job) for job in jobs))
+            attempted += len(jobs)
+            succeeded += sum(outcomes)
+            print(json.dumps({"attempted": attempted, "succeeded": succeeded, "counts": state(args.db)}))
+            if attempted < args.max_jobs:
+                await asyncio.sleep(max(0, args.pause_seconds))
+
+    asyncio.run(run())
 
 
 if __name__ == "__main__":
