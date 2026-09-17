@@ -75,7 +75,10 @@ def test_exclusions_never_fall_back_to_invented_steps(local_database):
     assert routes == []
 
 
-def test_http_mvp_and_honest_benchmark_gap(local_database):
+def test_http_mvp_and_honest_benchmark_gap(local_database, monkeypatch):
+    # The disabled-adapter assertion must not inherit a developer's local keys.
+    for key in ("OPENROUTER_API_KEY", "op_api_key", "GROQ_API_KEY", "q_api_key", "HF_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
     with TestClient(app) as client:
         health = client.get("/api/health")
         assert health.status_code == 200

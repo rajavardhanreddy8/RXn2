@@ -23,6 +23,23 @@ Deno.serve(async (request) => {
     const url = new URL(request.url)
     const operation = url.searchParams.get("op") || "stats"
     if (operation === "stats" || operation === "overview" || operation === "routes") return json(await snapshot(operation))
+    if (operation === "projection") {
+      const kind = url.searchParams.get("kind")
+      if (kind !== "nodes" && kind !== "edges") return json({ detail: "kind must be nodes or edges" }, 400)
+      const offset = Math.max(0, Number(url.searchParams.get("offset") || "0"))
+      const limit = Math.min(5000, Math.max(1, Number(url.searchParams.get("limit") || "5000")))
+      const table = kind === "nodes" ? "rxn2_graph_node" : "rxn2_graph_edge"
+      const order = kind === "nodes" ? "node_id" : "edge_id"
+      let request = client.from(table).select("*", { count: "exact" }).order(order).range(offset, offset + limit - 1)
+      if (kind === "edges") {
+        const statuses = (url.searchParams.get("validation_statuses") || "validated,unresolved,rejected")
+          .split(",").filter((value) => ["validated", "unresolved", "rejected"].includes(value))
+        request = request.in("validation_status", statuses.length ? statuses : ["validated", "unresolved", "rejected"])
+      }
+      const { data, error, count } = await request
+      if (error) throw error
+      return json({ kind, offset, limit, total: count || 0, items: data || [], automatic_acceptance: false })
+    }
     if (operation === "search") {
       const query = (url.searchParams.get("query") || "").trim()
       if (!query) return json({ items: [] })

@@ -24,6 +24,7 @@ data/automation/
 data/curated/*.sqlite
 data/curated/*.sqlite-*
 data/curated/backups/
+data/backups/
 data/processed/*
 data/manifests/*
 !data/processed/.gitkeep
@@ -32,3 +33,11 @@ data/manifests/*
 # Model weights and run outputs are versioned in a model registry, not Git.
 models/
 runs/
+
+# Local renders, scratch space, and experimental placeholders.
+output/
+tmp/
+lab/
+neuropharm-ai-workflow.png
+neuropharm-ai-workflow.svg
+.ipynb_checkpoints/

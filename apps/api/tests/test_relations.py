@@ -118,6 +118,12 @@ def test_openrouter_free_model_chain_and_legacy_key(monkeypatch):
     ]
 
 
+def test_groq_legacy_project_key_is_a_single_provider_fallback(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("q_api_key", "test-key")
+    assert provider_specs("groq") == [("groq", "openai/gpt-oss-20b")]
+
+
 def test_candidate_validation_builds_only_provisional_edges(relation_database):
     with db.connect() as connection:
         accepted_before = connection.execute(

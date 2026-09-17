@@ -56,6 +56,8 @@ class RelationExtraction(BaseModel):
 SYSTEM_PROMPT = """Extract only explicit facts from one public patent procedure.
 Return the required JSON schema and nothing else.
 Material surface_text, fact value_text, and evidence_quote must be verbatim substrings.
+Material roles are exactly consumed, produced, reagent, catalyst, solvent, or workup.
+Never emit the role "product"; an explicitly obtained product has role "produced".
 Classify the block as performed only when it describes an actually executed procedure.
 Do not infer identities, structures, SMILES, InChI, reaction SMILES, missing quantities,
 or missing products. Mark uncertainty and internal contradictions. A mention is not proof
@@ -71,7 +73,6 @@ _PROVIDER_SEMAPHORES = {
 
 PROVIDERS = {
     "groq": {
-        "key": "GROQ_API_KEY",
         "url": "https://api.groq.com/openai/v1/chat/completions",
         "model": os.getenv("RELATION_GROQ_MODEL", "openai/gpt-oss-20b"),
     },
@@ -85,6 +86,7 @@ PROVIDERS = {
     },
 }
 OPENROUTER_KEY_NAMES = ("OPENROUTER_API_KEY", "op_api_key")
+GROQ_KEY_NAMES = ("GROQ_API_KEY", "q_api_key")
 DEFAULT_OPENROUTER_MODELS = (
     "z-ai/glm-5.2:free,"
     "nvidia/nemotron-3-ultra-550b-a55b:free,"
@@ -103,6 +105,11 @@ fact_type is condition, quantity, or outcome. Use [] when no explicit items exis
 def openrouter_key() -> str | None:
     """Use one configured OpenRouter project key; never rotate keys for quota."""
     return next((os.getenv(name) for name in OPENROUTER_KEY_NAMES if os.getenv(name)), None)
+
+
+def groq_key() -> str | None:
+    """Use one configured Groq project key; never rotate keys for quota."""
+    return next((os.getenv(name) for name in GROQ_KEY_NAMES if os.getenv(name)), None)
 
 
 def openrouter_models(model: str | None = None) -> list[str]:
@@ -166,13 +173,15 @@ def provider_specs(mode: ProviderMode, model: str | None = None) -> list[tuple[s
         spec = PROVIDERS[name]
         if name == "openrouter" and openrouter_key():
             configured.extend((name, selected_model) for selected_model in openrouter_models(model))
-        elif name == "groq" and os.getenv(spec["key"]):
+        elif name == "groq" and groq_key():
             configured.append((name, model or spec["model"]))
         elif name == "huggingface" and os.getenv(spec["key"]):
             configured.append((name, model or spec["model"]))
     if not configured:
         expected = " or ".join(
-            "OPENROUTER_API_KEY (or op_api_key)" if name == "openrouter" else PROVIDERS[name]["key"]
+            "OPENROUTER_API_KEY (or op_api_key)" if name == "openrouter"
+            else "GROQ_API_KEY (or q_api_key)" if name == "groq"
+            else PROVIDERS[name]["key"]
             for name in names
         )
         raise RuntimeError(f"Relation extraction is disabled: configure {expected}")
@@ -206,9 +215,17 @@ async def call_provider(
     source_url: str | None,
 ) -> tuple[str, dict, RelationExtraction]:
     spec = PROVIDERS[provider]
-    key = openrouter_key() if provider == "openrouter" else os.getenv(spec["key"])
+    key = (
+        openrouter_key() if provider == "openrouter"
+        else groq_key() if provider == "groq"
+        else os.getenv(spec["key"])
+    )
     if not key:
-        expected = "OPENROUTER_API_KEY (or op_api_key)" if provider == "openrouter" else spec["key"]
+        expected = (
+            "OPENROUTER_API_KEY (or op_api_key)" if provider == "openrouter"
+            else "GROQ_API_KEY (or q_api_key)" if provider == "groq"
+            else spec["key"]
+        )
         raise RuntimeError(f"{expected} is not configured")
     prompt_sha = sha256_text(SYSTEM_PROMPT + "\n" + SCHEMA_VERSION)
     input_sha = sha256_text(source_text)
@@ -592,7 +609,9 @@ def _needs_adjudication(candidate: RelationExtraction) -> bool:
 
 
 async def process_evidence_span(
-    evidence_span_id: str, provider: ProviderMode = "auto"
+    evidence_span_id: str,
+    provider: ProviderMode = "auto",
+    model: str | None = None,
 ) -> dict:
     with connect() as db:
         evidence = db.execute(
@@ -604,7 +623,10 @@ async def process_evidence_span(
         raise ValueError(f"Unknown evidence_span_id: {evidence_span_id}")
 
     result = await extract_text(
-        evidence["evidence_text"], evidence["source_url"], provider=provider
+        evidence["evidence_text"],
+        evidence["source_url"],
+        provider=provider,
+        model=model,
     )
     candidate = RelationExtraction.model_validate(result["candidate"])
     adjudication_enabled = os.getenv(

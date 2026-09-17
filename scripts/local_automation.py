@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import json
 import os
@@ -37,6 +38,7 @@ def load_env_file(path: Path) -> None:
 load_env_file(ROOT / ".env")
 
 from scripts.annotate_catalogue import annotate_catalogue
+from scripts.acquire_lowe_uspto import RELEASE_ID as LOWE_RELEASE_ID, download_snapshot as download_lowe_snapshot
 from scripts.build_pilot_queue import build_batch, write_queue
 from scripts.bulk_pipeline import (
     DEFAULT_DB,
@@ -300,10 +302,36 @@ def write_summary(db: sqlite3.Connection, drive_root: Path, results: list[dict])
     return report
 
 
+def lock_owner_is_dead(lock_path: Path) -> bool:
+    for line in lock_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.startswith("pid="):
+            continue
+        try:
+            pid = int(line.partition("=")[2].split()[0])
+        except (IndexError, ValueError):
+            return False
+        if os.name == "nt":
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if handle:
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return False
+            return ctypes.get_last_error() != 5  # ERROR_ACCESS_DENIED means the process exists.
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        return False
+    return False
+
+
 @contextmanager
 def single_instance(lock_path: Path):
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    if lock_path.exists() and datetime.now().timestamp() - lock_path.stat().st_mtime > 12 * 3600:
+    if lock_path.exists() and (
+        datetime.now().timestamp() - lock_path.stat().st_mtime > 12 * 3600 or lock_owner_is_dead(lock_path)
+    ):
         lock_path.unlink()
     try:
         descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -493,6 +521,23 @@ def retry_job(db_path: Path, schema: Path, identifier: str) -> int:
         db.close()
 
 
+def acquire_lowe(db_path: Path, schema: Path, drive_root: Path) -> int:
+    if not drive_root.is_dir():
+        raise RuntimeError(f"Google Drive RXN2 root is unavailable: {drive_root}")
+    db = connect(db_path.resolve(), schema.resolve())
+    try:
+        result = run_job(
+            db,
+            "lowe_snapshot_acquisition",
+            LOWE_RELEASE_ID,
+            lambda: download_lowe_snapshot(drive_root / "data" / "raw"),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["status"] != "failed" else 1
+    finally:
+        db.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
@@ -505,6 +550,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("run")
+    commands.add_parser("acquire-lowe")
     commands.add_parser("status")
     retry = commands.add_parser("retry")
     retry.add_argument("pipeline_job_id")
@@ -513,6 +559,13 @@ def main(argv: list[str] | None = None) -> int:
         return print_status(args.db, args.schema)
     if args.command == "retry":
         return retry_job(args.db, args.schema, args.pipeline_job_id)
+    if args.command == "acquire-lowe":
+        try:
+            with single_instance(ROOT / "data" / "automation" / "local-automation.lock"):
+                return acquire_lowe(args.db, args.schema, args.drive_root.resolve())
+        except (OSError, RuntimeError, sqlite3.Error, ValueError) as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 1
     lock = ROOT / "data" / "automation" / "local-automation.lock"
     try:
         with single_instance(lock):
