@@ -26,7 +26,7 @@ def main():
         for n in OR+GROQ: env.pop(n,None)
         env['RELATION_QUEUE_LANE']='api'; env['SCALEUP_DB_PATH']=str(ROOT/'data/curated/rxn2-provisional.sqlite')
         if provider=='openrouter':
-            env['OPENROUTER_API_KEY']=key; env['RELATION_OPENROUTER_MODELS']='z-ai/glm-5.2:free,nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free'
+            env['OPENROUTER_API_KEY']=key; env['RELATION_OPENROUTER_MODELS']='nex-agi/nex-n2.5-mini:free'
         else:
             env['GROQ_API_KEY']=key; env['RELATION_GROQ_MODEL']='openai/gpt-oss-20b'
         out=(logs/f'api-lane-worker-{i}.log').open('a',encoding='utf-8'); err=(logs/f'api-lane-worker-{i}.err.log').open('a',encoding='utf-8')
