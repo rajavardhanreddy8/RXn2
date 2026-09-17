@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +12,13 @@ from scripts.hybrid_storage import (
     manifest,
     stage_file,
 )
+
+
+def test_checked_in_policy_preserves_required_local_headroom():
+    policy_file = Path(__file__).resolve().parents[1] / "configs" / "storage_policy.json"
+    configured = json.loads(policy_file.read_text(encoding="utf-8"))
+    assert configured["minimum_free_bytes"] >= 100 * 1024**3
+    assert configured["minimum_free_fraction"] >= 0.10
 
 
 def policy(tmp_path, **overrides) -> StoragePolicy:
