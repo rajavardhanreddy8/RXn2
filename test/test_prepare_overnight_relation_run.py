@@ -5,6 +5,8 @@ def test_launcher_notebook_is_self_contained_and_pins_its_bundle_path():
     notebook = launcher_notebook("/content/drive/MyDrive/RXN2/relation-extraction/overnight-v3")
     assert notebook["nbformat"] == 4
     code = "".join(notebook["cells"][1]["source"])
+    assert "lm-format-enforcer" in code
+    assert "transformers" in code
     assert "drive.mount" in code
     assert "RXN2_RELATION_DRIVE_ROOT" in code
     assert "colab_overnight_runner.py" in code

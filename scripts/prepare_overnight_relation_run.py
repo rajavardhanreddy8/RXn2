@@ -52,7 +52,7 @@ def launcher_notebook(colab_run_root: str) -> dict:
                 "metadata": {},
                 "source": [
                     "# RXN2 resumable relation extraction\\n",
-                    "Mount Drive, then run the next cell. Results checkpoint into this bundle."
+                    "Select a Colab GPU runtime, then run the next cell. Results checkpoint into this bundle."
                 ],
             },
             {
@@ -61,6 +61,7 @@ def launcher_notebook(colab_run_root: str) -> dict:
                 "execution_count": None,
                 "outputs": [],
                 "source": [
+                    "%pip -q install 'transformers>=4.51,<5' 'lm-format-enforcer>=0.10.10' accelerate sentencepiece\\n",
                     "from google.colab import drive\\n",
                     "drive.mount('/content/drive')\\n",
                     "import os, runpy\\n",

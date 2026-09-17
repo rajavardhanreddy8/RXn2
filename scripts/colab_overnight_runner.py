@@ -158,19 +158,24 @@ def main() -> None:
     started = datetime.now(UTC)
     drive_status("loading_model", total=len(jobs), completed=len(outcomes), remaining=len(pending))
 
-    import torch  # noqa: PLC0415
-    from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: PLC0415
-    from lmformatenforcer import JsonSchemaParser  # noqa: PLC0415
-    from lmformatenforcer.integrations.transformers import build_transformers_prefix_allowed_tokens_fn  # noqa: PLC0415
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    tokenizer.padding_side = "left"
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name, torch_dtype=torch.float16, device_map="auto",
-        trust_remote_code=True, low_cpu_mem_usage=True,
-    ).eval()
+    try:
+        import torch  # noqa: PLC0415
+        from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: PLC0415
+        from lmformatenforcer import JsonSchemaParser  # noqa: PLC0415
+        from lmformatenforcer.integrations.transformers import build_transformers_prefix_allowed_tokens_fn  # noqa: PLC0415
+        if not torch.cuda.is_available():
+            raise RuntimeError("A Colab GPU runtime is required for RXN2 relation extraction")
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        tokenizer.padding_side = "left"
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name, torch_dtype=torch.float16, device_map="auto",
+            trust_remote_code=True, low_cpu_mem_usage=True,
+        ).eval()
+    except Exception as error:
+        drive_status("failed", error=f"model_startup:{type(error).__name__}: {error}")
+        raise
     parser = JsonSchemaParser(schema)
     prefix_allowed = build_transformers_prefix_allowed_tokens_fn(tokenizer, parser)
     prompt = (DRIVE_ROOT / "jobs" / "relation-prompt.txt").read_text(encoding="utf-8")
