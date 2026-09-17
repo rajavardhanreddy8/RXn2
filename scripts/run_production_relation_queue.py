@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
 
 from apps.api.app import db as db_module
 from apps.api.app.relations import process_evidence_span
+from scripts.hybrid_storage import DEFAULT_POLICY, StoragePolicy, ensure_capacity
 
 
 def load_env(path: Path) -> None:
@@ -32,6 +33,13 @@ def load_env(path: Path) -> None:
         if line.strip() and not line.lstrip().startswith("#") and "=" in line:
             key, value = line.split("=", 1)
             os.environ.setdefault(key.strip(), value.strip())
+
+
+def assert_storage_ready(policy_path: Path = DEFAULT_POLICY) -> None:
+    """Fail before claiming jobs if local state cannot be written safely."""
+    policy = StoragePolicy.load(policy_path)
+    policy.require_raw_root()
+    ensure_capacity(policy, 0)
 
 
 def claim(db_path: Path) -> dict | None:
@@ -82,6 +90,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, default=ROOT / "data/curated/rxn2-production.sqlite")
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
+    parser.add_argument("--storage-policy", type=Path, default=DEFAULT_POLICY)
     parser.add_argument("--provider", choices=("openrouter", "groq"), default="openrouter")
     parser.add_argument("--model", required=True, help="The explicitly selected provider model.")
     parser.add_argument("--max-jobs", type=int, default=1)
@@ -89,6 +98,7 @@ def main() -> None:
     parser.add_argument("--pause-seconds", type=float, default=2)
     args = parser.parse_args()
     load_env(args.env_file)
+    assert_storage_ready(args.storage_policy)
     db_module.DB_PATH = args.db
     if args.provider == "openrouter" and not (os.getenv("OPENROUTER_API_KEY") or os.getenv("op_api_key")):
         raise SystemExit("OpenRouter is not configured in the env file.")
