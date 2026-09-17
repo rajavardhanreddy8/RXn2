@@ -85,11 +85,14 @@ def split_candidates(db_path: Path, apply: bool) -> dict:
     rows = list(connection.execute(
         """SELECT * FROM evidence_span
            WHERE evidence_status='candidate'
+             AND coalesce(extractor_version, '') <> ?
            ORDER BY publication_number, evidence_span_id"""
-    ))
+    , (EXTRACTOR_VERSION,)))
     planned: list[dict] = []
+    singleton_candidates = 0
     for row in rows:
-        for index, (start, end, text) in enumerate(procedure_blocks(row["evidence_text"]), 1):
+        blocks = procedure_blocks(row["evidence_text"])
+        for index, (start, end, text) in enumerate(blocks, 1):
             evidence_id = stable_id("evidence-span", row["evidence_span_id"], start, end)
             planned.append({
                 "parent_evidence_span_id": row["evidence_span_id"],
@@ -100,13 +103,32 @@ def split_candidates(db_path: Path, apply: bool) -> dict:
                 "text": text,
                 "ready": is_relation_ready(text),
                 "row": row,
+                "new_evidence": True,
             })
+        if not blocks and MINIMUM_CHARS <= len(row["evidence_text"]) <= MAXIMUM_CHARS:
+            text = row["evidence_text"]
+            if is_relation_ready(text):
+                singleton_candidates += 1
+                planned.append({
+                    "parent_evidence_span_id": None,
+                    "evidence_span_id": row["evidence_span_id"],
+                    "index": None,
+                    "char_start": row["char_start"],
+                    "char_end": row["char_end"],
+                    "text": text,
+                    "ready": True,
+                    "row": row,
+                    "new_evidence": False,
+                })
     report = {
         "schema_version": EXTRACTOR_VERSION,
         "created_at": now,
         "apply": apply,
         "parents_scanned": len(rows),
-        "child_blocks": len(planned),
+        "child_blocks": sum(item["new_evidence"] for item in planned),
+        "bounded_singleton_candidates": singleton_candidates,
+        "planned_relation_candidates": len(planned),
+        "relation_ready_singletons": singleton_candidates,
         "relation_ready_blocks": sum(item["ready"] for item in planned),
         "automatic_acceptance": False,
         "review_status": "needs_review",
@@ -118,36 +140,46 @@ def split_candidates(db_path: Path, apply: bool) -> dict:
         connection.execute("BEGIN IMMEDIATE")
         for item in planned:
             row = item["row"]
-            paragraph = f"{row['paragraph_id'] or row['evidence_span_id']}#procedure-{item['index']}"
-            connection.execute(
-                """INSERT OR IGNORE INTO evidence_span
+            if item["new_evidence"]:
+                paragraph = f"{row['paragraph_id'] or row['evidence_span_id']}#procedure-{item['index']}"
+                connection.execute(
+                    """INSERT OR IGNORE INTO evidence_span
                    (evidence_span_id, publication_number, source_id, artifact_sha256,
                     section_type, paragraph_id, char_start, char_end, evidence_text,
                     text_sha256, evidence_status, extraction_method, extractor_version,
                     review_status, source_url, retrieved_at, license_code, redistribution_class)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidate', ?, ?, 'needs_review', ?, ?, ?, ?)""",
-                (item["evidence_span_id"], row["publication_number"], row["source_id"],
-                 row["artifact_sha256"], row["section_type"], paragraph,
-                 item["char_start"], item["char_end"], item["text"], sha256_text(item["text"]),
-                 row["extraction_method"], EXTRACTOR_VERSION, row["source_url"],
-                 row["retrieved_at"], row["license_code"], row["redistribution_class"]),
-            )
-            if item["ready"]:
-                identity = f"{item['evidence_span_id']}:segmented"
-                connection.execute(
-                    """INSERT OR IGNORE INTO pipeline_job
-                       (pipeline_job_id, job_type, input_identity, input_sha256, status,
-                        attempt_count, queued_at, result_json)
-                       VALUES (?, 'relation_extraction', ?, ?, 'queued', 0, ?, ?)""",
-                    (stable_id("pipeline-job", "relation_extraction", identity), identity,
-                     sha256_text(item["text"]), now, json.dumps({
-                         "evidence_span_id": item["evidence_span_id"],
-                         "provider_mode": "auto",
-                         "candidate_status": "segmented_candidate",
-                         "parent_evidence_span_id": item["parent_evidence_span_id"],
-                         "segment_index": item["index"],
-                     }, sort_keys=True)),
+                    (item["evidence_span_id"], row["publication_number"], row["source_id"],
+                     row["artifact_sha256"], row["section_type"], paragraph,
+                     item["char_start"], item["char_end"], item["text"], sha256_text(item["text"]),
+                     row["extraction_method"], EXTRACTOR_VERSION, row["source_url"],
+                     row["retrieved_at"], row["license_code"], row["redistribution_class"]),
                 )
+            if item["ready"]:
+                category = "segmented_candidate" if item["new_evidence"] else "bounded_candidate"
+                identity = f"{item['evidence_span_id']}:{category}"
+                prior = connection.execute(
+                    """SELECT 1 FROM pipeline_job
+                       WHERE job_type='relation_extraction'
+                         AND json_extract(result_json, '$.evidence_span_id')=?
+                       LIMIT 1""",
+                    (item["evidence_span_id"],),
+                ).fetchone()
+                if not prior:
+                    connection.execute(
+                        """INSERT OR IGNORE INTO pipeline_job
+                           (pipeline_job_id, job_type, input_identity, input_sha256, status,
+                            attempt_count, queued_at, result_json)
+                           VALUES (?, 'relation_extraction', ?, ?, 'queued', 0, ?, ?)""",
+                        (stable_id("pipeline-job", "relation_extraction", identity), identity,
+                         sha256_text(item["text"]), now, json.dumps({
+                             "evidence_span_id": item["evidence_span_id"],
+                             "provider_mode": "auto",
+                             "candidate_status": category,
+                             "parent_evidence_span_id": item["parent_evidence_span_id"],
+                             "segment_index": item["index"],
+                         }, sort_keys=True)),
+                    )
         connection.commit()
     except Exception:
         connection.rollback()
