@@ -142,7 +142,6 @@ def prepare(db_path: Path, run_root: Path, maximum_chars: int, colab_run_root: s
             "jobs/relation-prompt.txt": sha256_file(prompt_path),
             "runner/colab_relation_common.py": sha256_file(runtime_paths["colab_relation_common.py"]),
             "runner/colab_overnight_runner.py": sha256_file(runtime_paths["colab_overnight_runner.py"]),
-            "launcher/RXN2_relation_extraction.ipynb": sha256_file(launcher_path),
         },
         "legacy_results": "../results/results.jsonl",
         "legacy_results_policy": "preserved_unvalidated_not_counted",
