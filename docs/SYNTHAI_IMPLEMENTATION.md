@@ -33,7 +33,33 @@ This satisfies the MERN requirement without porting chemistry logic or moving th
 
 The current UI is not authenticated. `POST /api/routes/generate` currently accepts a compound ID or query, target mass, currency, and constraints; it returns `coverage_gap: true` when no complete evidence-bounded route exists. `POST /api/routes/compare` accepts 2-10 generated route IDs. The route IDs and evaluations live in the Python/SQLite side. Neither endpoint is a persistent per-user project workspace.
 
-## 3. Prepare and start the current baseline
+## 3. Clone the repository and work on `fsd`
+
+The shared course branch is `fsd`, based on `rxn2-knowledge-graph-foundation` and containing these planning documents. Its local creation does not make it available on GitHub; the branch owner must publish it before teammates can clone it. Once `origin/fsd` exists, a new teammate can use PowerShell:
+
+```powershell
+git clone --branch fsd --single-branch https://github.com/rajavardhanreddy8/RXn2.git
+Set-Location RXn2
+git branch --show-current
+```
+
+The last command should print `fsd`. In an existing clone, use `git fetch origin` followed by `git switch --track origin/fsd` if the local `fsd` branch does not exist, or `git switch fsd` and `git pull --ff-only origin fsd` if it does.
+
+Make each feature on a short branch from the latest `fsd`, for example:
+
+```powershell
+git switch fsd
+git pull --ff-only origin fsd
+git switch -c fsd/auth
+# Edit and test the authentication feature.
+git add apps/server
+git commit -m "Add course app authentication"
+git push -u origin fsd/auth
+```
+
+Open a pull request from `fsd/auth` into `fsd` after the feature checks pass. Use another name such as `fsd/workspace`, `fsd/dashboard`, or `fsd/comparison` for other work. Do not commit `.env`, database files, generated data, or secrets. Before a new feature, switch back to `fsd` and pull its latest changes. If `origin/fsd` has not been published yet, continue on the already created local `fsd` branch; the clone commands above will work after publication.
+
+## 4. Prepare and start the current baseline
 
 Prerequisites: Git, Docker Desktop with Compose, and Node 22.5 or newer for the root CLI. Have enough local space for Docker images. The optional Drive-mounted raw-data paths in `.env.example` are for acquisition; the course demo should use local fixture paths and should not require a cloud account.
 
@@ -61,7 +87,7 @@ docker compose run --rm api pytest -q apps/api/tests
 
 Record any pre-existing failure in the project report. Do not count a synthetic fixture as validated chemistry or claim model accuracy from a successful UI test.
 
-## 4. Build order
+## 5. Build order
 
 ### Checkpoint 0 - baseline and design (Review 1)
 
@@ -107,7 +133,7 @@ Record any pre-existing failure in the project report. Do not count a synthetic 
 
 **Exit check:** PRD definition of done is met; the demo succeeds from a clean local start; each team member can explain one end-to-end part.
 
-## 5. Suggested minimal record shapes
+## 6. Suggested minimal record shapes
 
 ```json
 {
@@ -120,7 +146,7 @@ Record any pre-existing failure in the project report. Do not count a synthetic 
 
 These are design examples, not files to paste directly into MongoDB. Define one canonical server-side schema, then type the client response to match it. Do not accept `ownerId`, `createdBy`, or a metric's trusted source label from arbitrary client input.
 
-## 6. Verification matrix
+## 7. Verification matrix
 
 | Scenario | Expected result |
 | --- | --- |
@@ -134,7 +160,7 @@ These are design examples, not files to paste directly into MongoDB. Define one 
 | Container restart | Accounts, projects, routes, and runs remain in MongoDB |
 | Synthetic fixture | Visible synthetic/demo label in UI and report |
 
-## 7. Practical team split and submission checklist
+## 8. Practical team split and submission checklist
 
 The four students named in the assignment brief can divide work by feature boundary: one owns Express auth/ownership, one owns Mongo workspace APIs, one owns React screens, and one owns the Python bridge/comparison and test/report integration. Each feature owner should pair-review the adjacent API/UI contract. Record actual contributions rather than assuming this split was followed.
 
@@ -143,8 +169,8 @@ The four students named in the assignment brief can divide work by feature bound
 - [ ] Run `npm test`, web build, Python tests, new server tests, and the end-to-end journey.
 - [ ] Show failure cases: unauthorized access, no reviewed route, incomplete metric, Python unavailable.
 - [ ] Save demo data/version and screenshots; label synthetic examples.
-- [ ] Push a feature branch and submit a pull request for the actual implementation after it is built; the documentation branch is a planning baseline.
+- [ ] Publish `fsd` when authorized, then submit each tested feature branch as a pull request into `fsd`; this branch is a planning baseline until implementation lands.
 
-## 8. Known limits and next decision
+## 9. Known limits and next decision
 
 The present RXN2 production evidence is not guaranteed to yield a complete reviewed route, and current cost/feasibility scores do not cover the full process. The course MVP should demonstrate the application workflow with labelled fixtures and honest gaps. Real-route claims, reliable safety/green scoring, and model improvements require reviewed evidence and separate validation after the subject project.
