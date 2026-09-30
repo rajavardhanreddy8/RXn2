@@ -1,5 +1,7 @@
 # Drug scale-up patent data core
 
+For the Full Stack Development side project, start with the [SynthAI PRD](docs/SYNTHAI_PRD.md) and [implementation guide](docs/SYNTHAI_IMPLEMENTATION.md). These describe planned MERN workspace work on top of the current RXN2 application.
+
 This repository is the data-first nucleus for the project. It keeps the product idea—learning how drug-development processes change across scale—while removing live third-party APIs from the runtime path.
 
 The assigned workspace contained no existing project files, so this is a clean foundation rather than a code migration. The intended order is:
