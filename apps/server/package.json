@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "node --test --import tsx tests/**/*.test.ts",
-    "seed:admin": "tsx scripts/seed-admin.ts"
+    "seed:admin": "tsx scripts/seed-admin.ts",
+    "db:check": "tsx scripts/check-db.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
