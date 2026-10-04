@@ -2,13 +2,14 @@ import { Router, Request, Response } from 'express'
 import mongoose from 'mongoose'
 import { z } from 'zod'
 import { Route, IRouteStep } from '../models/Route.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, requireAdmin } from '../middleware/auth.js'
 import { requireProjectOwnership } from '../middleware/ownership.js'
 
 export const routesRouter = Router({ mergeParams: true })
 
 // Require authentication and project ownership for all route endpoints
 routesRouter.use(requireAuth)
+routesRouter.use(requireAdmin)
 routesRouter.use(requireProjectOwnership)
 
 const StepSchema = z.object({

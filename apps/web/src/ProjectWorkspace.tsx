@@ -2,7 +2,6 @@ import { useState, useEffect, FormEvent } from 'react'
 import {
   fetchCurrentUser,
   loginUser,
-  registerUser,
   logoutUser,
   fetchProjects,
   createProject,
@@ -29,10 +28,8 @@ export default function ProjectWorkspace() {
   // Auth state
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [name, setName] = useState('')
   const [authError, setAuthError] = useState('')
 
   // Workspace / Projects state
@@ -91,7 +88,8 @@ export default function ProjectWorkspace() {
     setAuthLoading(true)
     try {
       const res = await fetchCurrentUser()
-      setUser(res.user)
+      setUser(res.user.role === 'admin' ? res.user : null)
+      if (res.user.role !== 'admin') setAuthError('Administrator access is required for this workspace.')
     } catch {
       setUser(null)
     } finally {
@@ -103,16 +101,11 @@ export default function ProjectWorkspace() {
     e.preventDefault()
     setAuthError('')
     try {
-      if (authMode === 'login') {
-        const res = await loginUser(email, password)
-        setUser(res.user)
-      } else {
-        const res = await registerUser(email, password, name)
-        setUser(res.user)
-      }
+      const res = await loginUser(email, password)
+      if (res.user.role !== 'admin') throw new Error('Administrator access is required for this workspace.')
+      setUser(res.user)
       setEmail('')
       setPassword('')
-      setName('')
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : 'Authentication failed')
     }
@@ -400,45 +393,18 @@ export default function ProjectWorkspace() {
         <div className="auth-header">
           <span className="brand-mark">S</span>
           <h2>SynthAI Workspace Account</h2>
-          <p>Sign in or register to manage synthesis projects, manual route drafts, and comparisons.</p>
-        </div>
-
-        <div className="auth-tabs">
-          <button
-            className={authMode === 'login' ? 'active' : ''}
-            onClick={() => { setAuthMode('login'); setAuthError('') }}
-          >
-            Sign In
-          </button>
-          <button
-            className={authMode === 'register' ? 'active' : ''}
-            onClick={() => { setAuthMode('register'); setAuthError('') }}
-          >
-            Create Account
-          </button>
+          <p>Administrator sign-in is required to access projects, route evidence, and comparison history.</p>
         </div>
 
         {authError && <div className="alert error"><b>Auth Error:</b> {authError}</div>}
 
         <form onSubmit={handleAuthSubmit} className="auth-form">
-          {authMode === 'register' && (
-            <label>
-              Full Name
-              <input
-                type="text"
-                placeholder="e.g. Marie Curie"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </label>
-          )}
-
           <label>
             Email Address
             <input
               type="email"
               required
-              placeholder="student@university.edu"
+              placeholder="admin@institution.edu"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
@@ -456,13 +422,11 @@ export default function ProjectWorkspace() {
           </label>
 
           <button type="submit" className="primary">
-            {authMode === 'login' ? 'Sign In to Workspace' : 'Register Account'}
+            Sign In to Admin Workspace
           </button>
         </form>
 
-        <div className="auth-demo-hint">
-          <span>💡 Quick Student Demo:</span> You can register any valid email/password to create an isolated sandbox account.
-        </div>
+        <div className="auth-demo-hint">Accounts are provisioned by the administrator seed process. Public registration is disabled.</div>
       </section>
     )
   }

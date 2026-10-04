@@ -921,3 +921,27 @@ footer { padding: 20px 5vw; display: flex; justify-content: space-between; backg
     grid-template-columns: 1fr;
   }
 }
+
+/* Clinical admin workspace theme */
+:root { --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --paper:#FFFFFF; --green:#2563EB; --mint:#DBEAFE; --acid:#FFFFFF; --orange:#B45309; color:#0F172A; background:#F8F9FA; }
+body { background:#F8F9FA; color:#0F172A; }
+header { background:#FFFFFF; border-color:#E2E8F0; }
+.brand-mark { background:#2563EB; color:#FFFFFF; border-radius:4px; }
+nav a.active { color:#2563EB; border-color:#2563EB; }
+.local-status i { background:#2563EB; box-shadow:0 0 0 4px #DBEAFE; }
+.admin-intro { padding:52px 6vw 38px; background:#F8F9FA; border-bottom:1px solid #E2E8F0; }
+.admin-intro h1 { margin:12px 0; font-size:clamp(32px,4vw,54px); color:#0F172A; }
+.admin-intro p { max-width:680px; margin:0; color:#64748B; line-height:1.6; }
+.workspace-panel,.workspace-main,.workspace-sidebar,.workspace-user-bar { background:#FFFFFF; border-color:#E2E8F0; }
+.controls { background:#F8F9FA; border-color:#E2E8F0; }
+input,select { background:#FFFFFF; border-color:#E2E8F0; color:#0F172A; }
+input:focus,select:focus { border-color:#2563EB; box-shadow:0 0 0 3px #DBEAFE; }
+.primary { background:#2563EB; border-radius:4px; }
+.primary:hover:not(:disabled) { background:#1D4ED8; }
+.auth-card { box-shadow:0 12px 35px rgba(15,23,42,.06); }
+.auth-tabs { display:none; }
+.auth-demo-hint { color:#64748B; background:#F8F9FA; border-color:#E2E8F0; }
+.kicker,.eyebrow,.panel-label { color:#2563EB; }
+.guardrail { background:#EFF6FF; border-color:#BFDBFE; }
+.guardrail > span { background:#2563EB; }
+footer { background:#FFFFFF; border-color:#E2E8F0; color:#64748B; }

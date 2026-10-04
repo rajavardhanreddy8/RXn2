@@ -3,13 +3,14 @@ import { z } from 'zod'
 import { Project } from '../models/Project.js'
 import { OptimizationRun } from '../models/OptimizationRun.js'
 import { Route } from '../models/Route.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, requireAdmin } from '../middleware/auth.js'
 import { requireProjectOwnership } from '../middleware/ownership.js'
 
 export const projectsRouter = Router()
 
 // All project endpoints require authentication
 projectsRouter.use(requireAuth)
+projectsRouter.use(requireAdmin)
 
 const ProjectCreateSchema = z.object({
   title: z.string().trim().min(1, 'Title cannot be empty'),

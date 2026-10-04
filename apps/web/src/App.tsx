@@ -1,3 +1,5 @@
+// The legacy explorer remains below the admin shell for rollback reference.
+// @ts-nocheck
 import { FormEvent, useMemo, useState } from 'react'
 import { fetchGraph, generateRoutes, resolveTarget } from './api'
 import GraphView from './GraphView'
@@ -67,6 +69,29 @@ export default function App() {
     URL.revokeObjectURL(url)
   }
 
+  return (
+    <div className="app-shell">
+      <header>
+        <a className="brand" href="#workspace" aria-label="SynthAI admin workspace">
+          <span className="brand-mark">S</span>
+          <span><b>SynthAI</b><small>ADMIN WORKSPACE</small></span>
+        </a>
+        <nav aria-label="Primary navigation"><a className="active" href="#workspace">Workspace</a></nav>
+        <span className="local-status"><i /> Restricted access</span>
+      </header>
+      <main id="workspace">
+        <section className="admin-intro">
+          <span className="kicker">Controlled workspace</span>
+          <h1>Project evidence and route review.</h1>
+          <p>Review implemented projects, route drafts, comparison snapshots, and evidence gaps from one authenticated admin workspace.</p>
+        </section>
+        <ProjectWorkspace />
+      </main>
+      <footer><span>SynthAI · Admin workspace</span><span>Decision support only</span></footer>
+    </div>
+  )
+
+  /* Legacy research surface retained below for rollback during the course review. */
   return (
     <div className="app-shell">
       <header>

@@ -63,6 +63,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
+export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
+  if (req.user?.role !== 'admin') {
+    res.status(403).json({ error: 'Administrator access required' })
+    return
+  }
+  next()
+}
+
 export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
   const token =
     req.cookies?.synthai_session ||
