@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = ROOT / "data" / "curated" / "rxn2-provisional.sqlite"
 DEFAULT_OUTPUT = Path("I:/My Drive/RXN2/data/processed/epo_ops/provisional-relation-graph-2026-08-22-v1")
-TRANSIENT_MARKERS = ("429", "rate limit", "timeout", "timed out", "503", "temporarily", "invalid json", "eof while parsing", "model is busy", "completion_error", "unprocessable entity")
+TRANSIENT_MARKERS = ("429", "rate limit", "timeout", "timed out", "503", "temporarily", "invalid json", "eof while parsing", "model is busy", "completion_error", "unprocessable entity", "validation errors for relationextraction")
 
 
 def load_env(path: Path) -> None:
@@ -95,6 +95,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--idle-seconds", type=int, default=30)
     parser.add_argument("--max-jobs", type=int, default=0, help="0 means until queue completion")
+    parser.add_argument("--max-seconds", type=int, default=0, help="0 means no time limit")
     parser.add_argument("--allow-parallel", action="store_true", help="claim distinct jobs alongside approved shard workers")
     parser.add_argument("--provider", choices=("openrouter", "groq", "huggingface"), default="openrouter")
     args = parser.parse_args()
@@ -109,11 +110,15 @@ def main() -> None:
 
     completed = 0
     delay = max(args.idle_seconds, 10)
+    deadline = time.monotonic() + args.max_seconds if args.max_seconds else None
     while args.max_jobs == 0 or completed < args.max_jobs:
+        if deadline is not None and time.monotonic() >= deadline:
+            print(f"{datetime.now(UTC).isoformat()} time limit reached: {counts(args.db)}")
+            return
         state = counts(args.db)
         if state.get("running", 0) and not args.allow_parallel:
             print(f"{datetime.now(UTC).isoformat()} another batch is active; waiting")
-            time.sleep(args.idle_seconds)
+            time.sleep(min(args.idle_seconds, max(0, deadline - time.monotonic())) if deadline else args.idle_seconds)
             continue
         if state.get("queued", 0) == 0:
             print(f"{datetime.now(UTC).isoformat()} queue complete: {state}")
@@ -132,7 +137,7 @@ def main() -> None:
         retried = requeue_transient_failures(args.db)
         if retried or returncode:
             print(f"{datetime.now(UTC).isoformat()} delayed retry in {delay}s: {error[:240]}")
-            time.sleep(delay)
+            time.sleep(min(delay, max(0, deadline - time.monotonic())) if deadline else delay)
             delay = min(delay * 2, 3600)
             continue
 

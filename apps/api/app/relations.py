@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .chemistry import validate_provisional_reaction
 from .db import connect, transaction
@@ -20,15 +20,23 @@ FactType = Literal["condition", "quantity", "outcome"]
 ProviderMode = Literal["auto", "groq", "openrouter", "huggingface"]
 
 
+def confidence_number(value: object) -> object:
+    if isinstance(value, str):
+        return {"high": 0.9, "medium": 0.5, "low": 0.2}.get(value.strip().casefold(), value)
+    return value
+
+
 class MaterialRelation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     surface_text: str = Field(min_length=1, max_length=500)
     role: Role
-    evidence_quote: str = Field(min_length=1, max_length=5000)
+    evidence_quote: str = Field(min_length=1, max_length=1200)
     explicit: bool
     uncertain: bool
     confidence: float = Field(ge=0, le=1)
+
+    _normalize_confidence = field_validator("confidence", mode="before")(confidence_number)
 
 
 class TextFact(BaseModel):
@@ -36,10 +44,12 @@ class TextFact(BaseModel):
 
     fact_type: FactType
     value_text: str = Field(min_length=1, max_length=1000)
-    evidence_quote: str = Field(min_length=1, max_length=5000)
+    evidence_quote: str = Field(min_length=1, max_length=1200)
     explicit: bool
     uncertain: bool
     confidence: float = Field(ge=0, le=1)
+
+    _normalize_confidence = field_validator("confidence", mode="before")(confidence_number)
 
 
 class RelationExtraction(BaseModel):
@@ -48,9 +58,11 @@ class RelationExtraction(BaseModel):
     procedure_type: Literal[
         "performed", "referenced", "analytical", "purification", "ambiguous"
     ]
-    materials: list[MaterialRelation] = Field(max_length=100)
-    facts: list[TextFact] = Field(max_length=100)
-    conflicts: list[str] = Field(max_length=20)
+    # Patent procedures can mention many things, but a compact extraction fits
+    # free-provider output limits more reliably. Exact evidence remains required.
+    materials: list[MaterialRelation] = Field(max_length=24)
+    facts: list[TextFact] = Field(max_length=24)
+    conflicts: list[str] = Field(max_length=10)
 
 
 SYSTEM_PROMPT = """Extract only explicit facts from one public patent procedure.
@@ -61,7 +73,10 @@ Never emit the role "product"; an explicitly obtained product has role "produced
 Classify the block as performed only when it describes an actually executed procedure.
 Do not infer identities, structures, SMILES, InChI, reaction SMILES, missing quantities,
 or missing products. Mark uncertainty and internal contradictions. A mention is not proof
-of a reaction role. All results are provisional and can never approve chemistry."""
+of a reaction role. Return at most 10 materials, 10 facts, and 5 conflicts; prioritize
+the explicit starting materials, product, transformation conditions, and outcome. Use the
+shortest exact supporting quotation for every item. All results are provisional and can
+never approve chemistry."""
 SCHEMA_VERSION = "rxn2-relation-v1"
 RELATION_SCHEMA = RelationExtraction.model_json_schema()
 PROVIDER_LIMIT = int(os.getenv("RELATION_PROVIDER_CONCURRENCY", "4"))
@@ -198,6 +213,18 @@ def schema_repair_payload(
     return payload
 
 
+def compact_repair_payload(
+    provider: str, model: str, source_text: str, failed_generation: str
+) -> dict:
+    """Repair a valid-but-truncated model response without requesting extra detail."""
+    payload = schema_repair_payload(provider, model, source_text, failed_generation)
+    payload["messages"][0]["content"] += (
+        " Keep at most 12 materials, 12 facts, and 5 conflicts. "
+        "Use the shortest exact evidence quote that supports each item."
+    )
+    return payload
+
+
 def provider_specs(mode: ProviderMode, model: str | None = None) -> list[tuple[str, str]]:
     names = ["openrouter", "groq"] if mode == "auto" else [mode]
     configured = []
@@ -316,7 +343,23 @@ async def call_provider(
                         response.raise_for_status()
                         raw = response.json()
                         content = raw["choices"][0]["message"]["content"]
-                        candidate = RelationExtraction.model_validate_json(content)
+                        try:
+                            candidate = RelationExtraction.model_validate_json(content)
+                        except ValueError:
+                            # A 200 response can still end in a truncated JSON object on
+                            # free endpoints. Make one constrained repair request before
+                            # classifying the job as a provider failure.
+                            repaired = await client.post(
+                                spec["url"],
+                                headers=headers,
+                                json=compact_repair_payload(
+                                    provider, model, source_text, content
+                                ),
+                            )
+                            repaired.raise_for_status()
+                            raw = repaired.json()
+                            content = raw["choices"][0]["message"]["content"]
+                            candidate = RelationExtraction.model_validate_json(content)
                         saved = {
                             "provider_response": raw,
                             "candidate": candidate.model_dump(),

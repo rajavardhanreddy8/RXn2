@@ -10,6 +10,7 @@ from apps.api.app import db
 from apps.api.app.main import app
 from apps.api.app.relations import (
     RelationExtraction,
+    compact_repair_payload,
     persist_candidate,
     provider_specs,
     provisional_graph,
@@ -125,14 +126,30 @@ def test_groq_legacy_project_key_is_a_single_provider_fallback(monkeypatch):
     assert provider_specs("groq") == [("groq", "openai/gpt-oss-20b")]
 
 
+def test_confidence_labels_are_normalized_for_schema_validation():
+    candidate = performed_candidate().model_dump()
+    candidate["materials"][0]["confidence"] = "high"
+    candidate["facts"][0]["confidence"] = "low"
+    parsed = RelationExtraction.model_validate(candidate)
+    assert parsed.materials[0].confidence == 0.9
+    assert parsed.facts[0].confidence == 0.2
+
+
 def test_schema_repair_keeps_source_and_failed_candidate_separate():
     payload = schema_repair_payload(
         "groq", "openai/gpt-oss-20b", "Product was obtained.", '{"role":"product"}'
     )
-    assert payload["response_format"]["json_schema"]["strict"] is True
+    assert payload["response_format"] == {"type": "json_object"}
     assert "SOURCE_TEXT:\nProduct was obtained." in payload["messages"][1]["content"]
     assert 'INVALID_CANDIDATE:\n{"role":"product"}' in payload["messages"][1]["content"]
     assert "Do not add facts" in payload["messages"][0]["content"]
+
+
+def test_compact_repair_requests_bounded_output():
+    payload = compact_repair_payload(
+        "groq", "openai/gpt-oss-20b", "Product was obtained.", "{\"materials\":["
+    )
+    assert "at most 12 materials" in payload["messages"][0]["content"]
 
 
 def test_candidate_validation_builds_only_provisional_edges(relation_database):
