@@ -1,4 +1,17 @@
-import type { AutomationStatus, CoverageResponse, CoverageStatus, GenerateResponse, Graph, ReviewQueueResponse } from './types'
+import type {
+  AutomationStatus,
+  CoverageResponse,
+  CoverageStatus,
+  GenerateResponse,
+  Graph,
+  ReviewQueueResponse,
+  User,
+  Project,
+  SavedRoute,
+  SavedStep,
+  MassUnit,
+  OptimizationRun,
+} from './types'
 
 const hostedGraphEndpoint = import.meta.env.VITE_RXN2_HOSTED_API?.replace(/\/$/, '')
 const hostedProjectionEndpoint = import.meta.env.VITE_RXN2_FULL_PROJECTION_API?.replace(/\/$/, '')
@@ -33,12 +46,20 @@ function hostedRequestUrl(localUrl: string) {
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(hostedRequestUrl(url), {
+    credentials: 'include',
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   })
   const body = await response.json()
   if (!response.ok) {
-    const message = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail || body)
+    const message =
+      typeof body.error === 'string'
+        ? body.error
+        : typeof body.detail === 'string'
+        ? body.detail
+        : Array.isArray(body.details)
+        ? body.details.join(', ')
+        : JSON.stringify(body.error || body.detail || body)
     throw new Error(message)
   }
   return body as T
@@ -50,14 +71,14 @@ export async function resolveTarget(query: string) {
     target?: { compound_id: string; preferred_name: string }
     message?: string
     reviewed_producing_reactions?: number
-  }>('/api/targets/resolve', {
+  }>('/api/v1/targets/resolve', {
     method: 'POST',
     body: JSON.stringify({ query, query_type: 'auto' }),
   })
 }
 
 export async function generateRoutes(compoundId: string, targetMassG: number, maxSteps: number) {
-  return request<GenerateResponse>('/api/routes/generate', {
+  return request<GenerateResponse>('/api/v1/routes/generate', {
     method: 'POST',
     body: JSON.stringify({
       compound_id: compoundId,
@@ -208,4 +229,169 @@ export type LargeGraphNeighborhood = {
 
 export async function fetchReviewQueue() {
   return request<ReviewQueueResponse>('/api/review-queue')
+}
+
+// ----------------------------------------------------
+// Phase 1 Auth API Functions
+// ----------------------------------------------------
+
+export async function registerUser(email: string, password: string, name?: string) {
+  return request<{ user: User; token: string }>('/api/v1/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, password, name }),
+  })
+}
+
+export async function loginUser(email: string, password: string) {
+  return request<{ user: User; token: string }>('/api/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  })
+}
+
+export async function logoutUser() {
+  return request<{ message: string }>('/api/v1/auth/logout', {
+    method: 'POST',
+  })
+}
+
+export async function fetchCurrentUser() {
+  return request<{ user: User }>('/api/v1/auth/me')
+}
+
+// ----------------------------------------------------
+// Phase 2 Project Workspace API Functions
+// ----------------------------------------------------
+
+export async function fetchProjects() {
+  return request<{ projects: Project[]; total: number }>('/api/v1/projects')
+}
+
+export async function fetchProject(projectId: string) {
+  return request<{ project: Project }>(`/api/v1/projects/${projectId}`)
+}
+
+export async function createProject(data: {
+  title: string
+  targetCompoundId?: string | null
+  targetCompoundName?: string | null
+  targetMassG: number
+  targetMassUnit?: MassUnit
+  notes?: string
+}) {
+  return request<{ project: Project }>('/api/v1/projects', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateProject(
+  projectId: string,
+  data: Partial<{
+    title: string
+    targetCompoundId?: string | null
+    targetCompoundName?: string | null
+    targetMassG: number
+    targetMassUnit: MassUnit
+    notes: string
+  }>
+) {
+  return request<{ project: Project }>(`/api/v1/projects/${projectId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteProject(projectId: string) {
+  return request<{ message: string; deletedProjectId: string; deletedRoutesCount: number }>(
+    `/api/v1/projects/${projectId}`,
+    { method: 'DELETE' }
+  )
+}
+
+// ----------------------------------------------------
+// Phase 2 Route Management API Functions
+// ----------------------------------------------------
+
+export async function fetchProjectRoutes(projectId: string) {
+  return request<{ routes: SavedRoute[]; total: number }>(`/api/v1/projects/${projectId}/routes`)
+}
+
+export async function fetchProjectRoute(projectId: string, routeId: string) {
+  return request<{ route: SavedRoute }>(`/api/v1/projects/${projectId}/routes/${routeId}`)
+}
+
+export async function createProjectRoute(
+  projectId: string,
+  data: {
+    origin?: 'manual' | 'generated'
+    steps: SavedStep[]
+  }
+) {
+  return request<{ route: SavedRoute }>(`/api/v1/projects/${projectId}/routes`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateProjectRoute(
+  projectId: string,
+  routeId: string,
+  data: {
+    origin?: 'manual' | 'generated'
+    steps?: SavedStep[]
+  }
+) {
+  return request<{ route: SavedRoute }>(`/api/v1/projects/${projectId}/routes/${routeId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteProjectRoute(projectId: string, routeId: string) {
+  return request<{ message: string; deletedRouteId: string }>(
+    `/api/v1/projects/${projectId}/routes/${routeId}`,
+    { method: 'DELETE' }
+  )
+}
+
+// ----------------------------------------------------
+// Phase 3 Route Comparison API Functions
+// ----------------------------------------------------
+
+export async function createComparison(
+  projectId: string,
+  data: {
+    routeIds: string[]
+    generatedRoutes?: unknown[]
+    baseCurrency?: string
+  }
+) {
+  return request<{ comparison: OptimizationRun }>(`/api/v1/projects/${projectId}/comparisons`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function fetchProjectComparisons(projectId: string) {
+  return request<{
+    comparisons: Array<{
+      _id: string
+      projectId: string
+      createdBy: string
+      routeSnapshotsCount: number
+      target: { compoundName?: string; targetMassG: number }
+      methodVersion: string
+      status: 'completed' | 'failed'
+      error?: string | null
+      createdAt: string
+    }>
+    total: number
+  }>(`/api/v1/projects/${projectId}/comparisons`)
+}
+
+export async function fetchProjectComparison(projectId: string, comparisonId: string) {
+  return request<{ comparison: OptimizationRun }>(
+    `/api/v1/projects/${projectId}/comparisons/${comparisonId}`
+  )
 }

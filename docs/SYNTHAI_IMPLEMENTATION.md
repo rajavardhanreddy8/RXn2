@@ -1,6 +1,6 @@
 # SynthAI implementation guide and checkpoints
 
-**Read first:** [SynthAI PRD](SYNTHAI_PRD.md). This guide describes work to do; the current branch contains planning documents, not a finished MERN implementation.
+**Read first:** [SynthAI PRD](SYNTHAI_PRD.md). This guide records the implementation plan. The MERN workspace is now included on `fsd`; use [demo startup](SYNTHAI_DEMO.md) and [verified results](SYNTHAI_ZIP_REVIEW.md) for its current status.
 
 ## 1. Implementation choice
 
@@ -50,14 +50,14 @@ Make each feature on a short branch from the latest `fsd`, for example:
 ```powershell
 git switch fsd
 git pull --ff-only origin fsd
-git switch -c fsd/auth
+git switch -c codex/fsd-auth
 # Edit and test the authentication feature.
 git add apps/server
 git commit -m "Add course app authentication"
-git push -u origin fsd/auth
+git push -u origin codex/fsd-auth
 ```
 
-Open a pull request from `fsd/auth` into `fsd` after the feature checks pass. Use another name such as `fsd/workspace`, `fsd/dashboard`, or `fsd/comparison` for other work. Do not commit `.env`, database files, generated data, or secrets. Before a new feature, switch back to `fsd` and pull its latest changes. If `origin/fsd` has not been published yet, continue on the already created local `fsd` branch; the clone commands above will work after publication.
+Open a pull request from `codex/fsd-auth` into `fsd` after the feature checks pass. Use another name such as `codex/fsd-workspace`, `codex/fsd-dashboard`, or `codex/fsd-comparison` for other work. Do not commit `.env`, database files, generated data, or secrets. Before a new feature, switch back to `fsd` and pull its latest changes. If `origin/fsd` has not been published yet, continue on the already created local `fsd` branch; the clone commands above will work after publication.
 
 ## 4. Prepare and start the current baseline
 
@@ -169,7 +169,7 @@ The four students named in the assignment brief can divide work by feature bound
 - [ ] Run `npm test`, web build, Python tests, new server tests, and the end-to-end journey.
 - [ ] Show failure cases: unauthorized access, no reviewed route, incomplete metric, Python unavailable.
 - [ ] Save demo data/version and screenshots; label synthetic examples.
-- [ ] Publish `fsd` when authorized, then submit each tested feature branch as a pull request into `fsd`; this branch is a planning baseline until implementation lands.
+- [ ] Publish `fsd` when authorized, then submit each tested feature branch as a pull request into `fsd`; include the demo checks with every implementation change.
 
 ## 9. Known limits and next decision
 

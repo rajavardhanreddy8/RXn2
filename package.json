@@ -5,7 +5,7 @@
   "description": "Offline-first evidence database for drug patent process scale-up research.",
   "type": "module",
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.12"
   },
   "scripts": {
     "db:init": "node src/cli.js init-db --db data/curated/rxn2-production.sqlite",
@@ -22,9 +22,12 @@
     "catalogue:init": "docker compose run --rm api python scripts/bulk_pipeline.py init",
     "catalogue:coverage": "docker compose run --rm api python scripts/bulk_pipeline.py refresh-coverage",
     "catalogue:summary": "docker compose run --rm api python scripts/bulk_pipeline.py summary",
+    "server:dev": "npm --prefix apps/server run dev",
+    "server:build": "npm --prefix apps/server run build",
+    "server:test": "npm --prefix apps/server run test",
     "web:build": "npm --prefix apps/web run build",
     "app:up": "docker compose up --build",
     "api:test": "docker compose run --rm api pytest -q apps/api/tests",
-    "test": "node --test"
+    "test": "node --test test/core.test.js && npm --prefix apps/server test"
   }
 }

@@ -433,6 +433,8 @@ def route_get(route_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Route not found")
     route = json.loads(row["route_json"])
     route["evaluation"] = json.loads(row["cost_basis_json"])
+    route["target_mass_g"] = row["target_mass_g"]
+    route["base_currency"] = row["base_currency"]
     return route
 
 

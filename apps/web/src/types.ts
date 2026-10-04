@@ -149,3 +149,110 @@ export type ReviewQueueResponse = {
   automatic_acceptance: boolean
   message?: string
 }
+
+export type User = {
+  id: string
+  email: string
+  name?: string
+  role: 'student' | 'admin'
+  createdAt?: string
+}
+
+export type MassUnit = 'g' | 'mg' | 'kg'
+export type DurationUnit = 'h' | 'min' | 'd'
+
+export type Project = {
+  _id: string
+  ownerId: string
+  title: string
+  targetCompoundId?: string | null
+  targetCompoundName?: string | null
+  targetMassG: number
+  targetMassUnit: MassUnit
+  notes: string
+  routeCount?: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type SavedStep = {
+  position: number
+  name: string
+  reactants: string[]
+  inputLabels: string[]
+  productLabel: string
+  yieldPercent: number | null
+  durationHours: number | null
+  durationUnit: DurationUnit
+  solvent: string
+  conditions: string
+  hazardNotes: string
+  evidenceRef: string
+  dataSource: string
+}
+
+export type SavedRoute = {
+  _id: string
+  projectId: string
+  origin: 'manual' | 'generated'
+  revision: number
+  steps: SavedStep[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type MetricStatus = 'complete' | 'partial' | 'unknown'
+export type MetricOrigin = 'entered' | 'reported' | 'calculated' | 'predicted'
+
+export type RouteMetric = {
+  value: number | string | null
+  unit: string
+  status: MetricStatus
+  origin: MetricOrigin
+  evidence?: string | null
+  warnings: string[]
+}
+
+export type ComparisonRouteMetrics = {
+  yield: RouteMetric
+  duration: RouteMetric
+  cost: RouteMetric
+  safety: RouteMetric
+  green: RouteMetric
+  stepCount: RouteMetric
+}
+
+export type RouteSnapshot = {
+  routeId: string
+  origin: 'manual' | 'generated'
+  revision: number
+  steps: SavedStep[]
+  metrics?: ComparisonRouteMetrics
+  rawEvaluation?: Record<string, unknown>
+}
+
+export type OptimizationRun = {
+  _id: string
+  projectId: string
+  createdBy: string
+  routeSnapshots: RouteSnapshot[]
+  target: {
+    compoundId?: string | null
+    compoundName?: string | null
+    targetMassG: number
+    targetMassUnit: string
+  }
+  constraints: {
+    maxSteps?: number
+    baseCurrency?: string
+    excludedCompounds?: string[]
+    excludedHazards?: string[]
+  }
+  methodVersion: string
+  dataVersion: string
+  startedAt: string
+  endedAt: string
+  status: 'completed' | 'failed'
+  error?: string | null
+  createdAt: string
+}

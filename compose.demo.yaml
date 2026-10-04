@@ -1,0 +1,11 @@
+services:
+  api:
+    environment:
+      SCALEUP_DB_PATH: /workspace/data/curated/rxn2-demo.sqlite
+      RXN2_DB_PATH: /workspace/data/curated/rxn2-demo.sqlite
+      RXN2_SEED_DEMO: 'true'
+      GROQ_API_KEY: ''
+    volumes:
+      - ./data/raw:/raw:ro
+      - ./data/cloud-results:/cloud-results
+      - ./data/ocr:/ocr:ro

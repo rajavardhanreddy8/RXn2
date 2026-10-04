@@ -32,6 +32,8 @@ data/manifests/*
 
 # Model weights and run outputs are versioned in a model registry, not Git.
 models/
+!apps/server/src/models/
+!apps/server/src/models/*.ts
 runs/
 
 # Local renders, scratch space, and experimental placeholders.

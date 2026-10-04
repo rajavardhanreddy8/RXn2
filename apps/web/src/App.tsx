@@ -7,6 +7,7 @@ import AutomationPanel from './AutomationPanel'
 import ReviewQueuePanel from './ReviewQueuePanel'
 import ExtractionDashboard from './ExtractionDashboard'
 import LargeGraphExplorer from './LargeGraphExplorer'
+import ProjectWorkspace from './ProjectWorkspace'
 import type { GenerateResponse, Graph } from './types'
 
 const benchmarks = ['Acetaminophen', 'Ibuprofen', 'Metformin', 'Sildenafil', 'Apixaban']
@@ -21,6 +22,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [view, setView] = useState<'routes' | 'graph'>('routes')
+  const [showResearch, setShowResearch] = useState(false)
 
   const savings = useMemo(() => {
     const costs = result?.routes.map((route) => route.evaluation.actual_material_cost).filter((value): value is number => value !== null) || []
@@ -70,9 +72,9 @@ export default function App() {
       <header>
         <a className="brand" href="#top" aria-label="ScaleUp Graph home">
           <span className="brand-mark">S</span>
-          <span><b>ScaleUp</b><small>GRAPH</small></span>
+          <span><b>SynthAI</b><small>COURSE WORKSPACE</small></span>
         </a>
-        <nav><a className="active" href="#explorer">Route explorer</a><a href="#large-graph">Large graph</a><a href="#coverage">Coverage</a><a href="#review-queue">Review queue</a><a href="#automation">Automation</a><a href="#principles">Methods</a></nav>
+        <nav><a href="#workspace">Projects & Workspace</a><a className="active" href="#explorer">Route explorer</a><a href="#large-graph">Large graph</a><a href="#coverage">Coverage</a><a href="#review-queue">Review queue</a><a href="#automation">Automation</a><a href="#principles">Methods</a></nav>
         <span className="local-status"><i /> Local evidence store</span>
       </header>
 
@@ -80,7 +82,7 @@ export default function App() {
         <section className="hero">
           <div>
             <span className="kicker">Evidence-bounded process intelligence</span>
-            <h1>Find a lower-cost synthesis route.<br /><em>Know why it ranks.</em></h1>
+            <h1>Compare synthesis route options.<br /><em>Keep evidence and gaps visible.</em></h1>
             <p>Search only reviewed reaction instances, trace every step to its source, and compare package-aware raw-material economics without a required external API.</p>
           </div>
           <div className="hero-stat"><span>Ranking policy</span><strong>50<span>%</span></strong><p>cost</p><strong>50<span>%</span></strong><p>feasibility</p></div>
@@ -132,7 +134,7 @@ export default function App() {
                 <div><span>Batch basis</span><strong>{result.target_mass_g?.toLocaleString()} g</strong></div>
                 <div><span>Fixture spread</span><strong>{savings === null ? '—' : `$${savings.toFixed(0)}`}</strong></div>
               </div>
-              <div className="fixture-warning"><b>Demonstration data</b> These bundled routes and prices are synthetic UI/test fixtures—not patent evidence or a cost-reduction claim.</div>
+              <div className="fixture-warning"><b>Demonstration data</b> Synthetic demonstration data — not validated chemistry. Bundled routes and prices are synthetic fixtures, not patent evidence or clinical advice.</div>
               {selected.length >= 2 && <div className="compare-bar"><span>{selected.length} routes selected</span><span>Comparison is normalized to the same target, batch and currency date.</span></div>}
               <div className="route-list">
                 {result.routes.map((route) => <RouteCard key={route.route_id} route={route} selected={selected.includes(route.route_id)} onSelect={(checked) => setSelected((current) => checked ? [...current, route.route_id] : current.filter((id) => id !== route.route_id))} />)}
@@ -142,6 +144,12 @@ export default function App() {
           </div>
         </section>
 
+        <section id="workspace" style={{ borderTop: '1px solid var(--line)', background: '#fafbfa', padding: '40px 0' }}>
+          <ProjectWorkspace />
+        </section>
+
+        <button className="secondary" onClick={() => setShowResearch(!showResearch)}>{showResearch ? 'Hide research tools' : 'Show research tools'}</button>
+        {showResearch && <>
         <AutomationPanel />
 
         <ExtractionDashboard />
@@ -151,6 +159,7 @@ export default function App() {
         <CoveragePanel />
 
         <ReviewQueuePanel />
+        </>}
 
         <section className="methods" id="principles">
           <span className="kicker">What the score means</span>
@@ -162,7 +171,7 @@ export default function App() {
           </div>
         </section>
       </main>
-      <footer><span>ScaleUp Graph · MVP 0.2</span><span>Decision support only—not manufacturing instructions.</span></footer>
+      <footer><span>SynthAI · Course demonstration</span><span>Decision support only—not manufacturing instructions.</span></footer>
     </div>
   )
 }
