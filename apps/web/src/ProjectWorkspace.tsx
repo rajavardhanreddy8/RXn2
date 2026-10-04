@@ -24,7 +24,7 @@ const benchmarkSuggestions = [
   { name: 'Sildenafil', id: 'BENCH-SILDENAFIL' },
 ]
 
-export default function ProjectWorkspace() {
+export default function ProjectWorkspace({ onAuthChange }: { onAuthChange?: (authenticated: boolean) => void }) {
   // Auth state
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -88,10 +88,11 @@ export default function ProjectWorkspace() {
     setAuthLoading(true)
     try {
       const res = await fetchCurrentUser()
-      setUser(res.user.role === 'admin' ? res.user : null)
-      if (res.user.role !== 'admin') setAuthError('Administrator access is required for this workspace.')
+      setUser(res.user)
+      onAuthChange?.(true)
     } catch {
       setUser(null)
+      onAuthChange?.(false)
     } finally {
       setAuthLoading(false)
     }
@@ -102,8 +103,8 @@ export default function ProjectWorkspace() {
     setAuthError('')
     try {
       const res = await loginUser(email, password)
-      if (res.user.role !== 'admin') throw new Error('Administrator access is required for this workspace.')
       setUser(res.user)
+      onAuthChange?.(true)
       setEmail('')
       setPassword('')
     } catch (err) {
@@ -115,6 +116,7 @@ export default function ProjectWorkspace() {
     try {
       await logoutUser()
       setUser(null)
+      onAuthChange?.(false)
     } catch (err) {
       console.error('Logout error:', err)
     }
@@ -393,7 +395,7 @@ export default function ProjectWorkspace() {
         <div className="auth-header">
           <span className="brand-mark">S</span>
           <h2>SynthAI Workspace Account</h2>
-          <p>Administrator sign-in is required to access projects, route evidence, and comparison history.</p>
+          <p>Sign in with your approved user ID and password to access projects, route evidence, and the knowledge graph.</p>
         </div>
 
         {authError && <div className="alert error"><b>Auth Error:</b> {authError}</div>}
@@ -404,7 +406,7 @@ export default function ProjectWorkspace() {
             <input
               type="email"
               required
-              placeholder="admin@institution.edu"
+              placeholder="your-email@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
@@ -422,11 +424,11 @@ export default function ProjectWorkspace() {
           </label>
 
           <button type="submit" className="primary">
-            Sign In to Admin Workspace
+            Sign In to Workspace
           </button>
         </form>
 
-        <div className="auth-demo-hint">Accounts are provisioned by the administrator seed process. Public registration is disabled.</div>
+        <div className="auth-demo-hint">Accounts are provisioned by the project administrator.</div>
       </section>
     )
   }

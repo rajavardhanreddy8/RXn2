@@ -1,5 +1,3 @@
-// The legacy explorer remains below the admin shell for rollback reference.
-// @ts-nocheck
 import { FormEvent, useMemo, useState } from 'react'
 import { fetchGraph, generateRoutes, resolveTarget } from './api'
 import GraphView from './GraphView'
@@ -25,6 +23,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [view, setView] = useState<'routes' | 'graph'>('routes')
   const [showResearch, setShowResearch] = useState(false)
+  const [hasWorkspaceAccess, setHasWorkspaceAccess] = useState(false)
 
   const savings = useMemo(() => {
     const costs = result?.routes.map((route) => route.evaluation.actual_material_cost).filter((value): value is number => value !== null) || []
@@ -72,29 +71,6 @@ export default function App() {
   return (
     <div className="app-shell">
       <header>
-        <a className="brand" href="#workspace" aria-label="SynthAI admin workspace">
-          <span className="brand-mark">S</span>
-          <span><b>SynthAI</b><small>ADMIN WORKSPACE</small></span>
-        </a>
-        <nav aria-label="Primary navigation"><a className="active" href="#workspace">Workspace</a></nav>
-        <span className="local-status"><i /> Restricted access</span>
-      </header>
-      <main id="workspace">
-        <section className="admin-intro">
-          <span className="kicker">Controlled workspace</span>
-          <h1>Project evidence and route review.</h1>
-          <p>Review implemented projects, route drafts, comparison snapshots, and evidence gaps from one authenticated admin workspace.</p>
-        </section>
-        <ProjectWorkspace />
-      </main>
-      <footer><span>SynthAI · Admin workspace</span><span>Decision support only</span></footer>
-    </div>
-  )
-
-  /* Legacy research surface retained below for rollback during the course review. */
-  return (
-    <div className="app-shell">
-      <header>
         <a className="brand" href="#top" aria-label="ScaleUp Graph home">
           <span className="brand-mark">S</span>
           <span><b>SynthAI</b><small>COURSE WORKSPACE</small></span>
@@ -104,6 +80,11 @@ export default function App() {
       </header>
 
       <main id="top">
+        <section id="workspace" style={{ borderBottom: '1px solid var(--line)', background: '#F8F9FA', padding: '32px 0' }}>
+          <ProjectWorkspace onAuthChange={setHasWorkspaceAccess} />
+        </section>
+
+        {hasWorkspaceAccess && <>
         <section className="hero">
           <div>
             <span className="kicker">Evidence-bounded process intelligence</span>
@@ -169,10 +150,6 @@ export default function App() {
           </div>
         </section>
 
-        <section id="workspace" style={{ borderTop: '1px solid var(--line)', background: '#fafbfa', padding: '40px 0' }}>
-          <ProjectWorkspace />
-        </section>
-
         <button className="secondary" onClick={() => setShowResearch(!showResearch)}>{showResearch ? 'Hide research tools' : 'Show research tools'}</button>
         {showResearch && <>
         <AutomationPanel />
@@ -195,6 +172,7 @@ export default function App() {
             <article><span>03</span><h3>Missing stays missing</h3><p>No hidden imputation. Insufficient quote or stoichiometry coverage moves a route to the cost-incomplete tier.</p></article>
           </div>
         </section>
+        </>}
       </main>
       <footer><span>SynthAI · Course demonstration</span><span>Decision support only—not manufacturing instructions.</span></footer>
     </div>

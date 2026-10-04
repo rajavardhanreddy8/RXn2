@@ -3,7 +3,7 @@ import mongoose from 'mongoose'
 import { z } from 'zod'
 import { Route, IRouteStep } from '../models/Route.js'
 import { OptimizationRun, IRouteSnapshot } from '../models/OptimizationRun.js'
-import { requireAuth, requireAdmin } from '../middleware/auth.js'
+import { requireAuth } from '../middleware/auth.js'
 import { requireProjectOwnership } from '../middleware/ownership.js'
 import { buildRouteSnapshot } from '../services/comparisonService.js'
 import { fastApiClient, FastAPIServiceError } from '../services/fastapiClient.js'
@@ -11,7 +11,6 @@ import { fastApiClient, FastAPIServiceError } from '../services/fastapiClient.js
 export const comparisonsRouter = Router({ mergeParams: true })
 
 comparisonsRouter.use(requireAuth)
-comparisonsRouter.use(requireAdmin)
 comparisonsRouter.use(requireProjectOwnership)
 
 const CompareRequestSchema = z.object({
