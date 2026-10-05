@@ -15,10 +15,18 @@ import type {
 
 const hostedGraphEndpoint = import.meta.env.VITE_RXN2_HOSTED_API?.replace(/\/$/, '')
 const hostedProjectionEndpoint = import.meta.env.VITE_RXN2_FULL_PROJECTION_API?.replace(/\/$/, '')
+const hostedWorkspaceEndpoint = import.meta.env.VITE_EXPRESS_API_URL?.replace(/\/$/, '')
+const hostedPythonEndpoint = import.meta.env.VITE_PYTHON_API_URL?.replace(/\/$/, '')
 
 export const isHostedGraph = Boolean(hostedGraphEndpoint)
 
 function hostedRequestUrl(localUrl: string) {
+  if (localUrl.startsWith('/api/v1') && hostedWorkspaceEndpoint) {
+    return `${hostedWorkspaceEndpoint}${localUrl}`
+  }
+  if (localUrl.startsWith('/api/') && hostedPythonEndpoint) {
+    return `${hostedPythonEndpoint}${localUrl}`
+  }
   if (!hostedGraphEndpoint) return localUrl
   const parsed = new URL(localUrl, window.location.origin)
   const parameters = new URLSearchParams(parsed.search)

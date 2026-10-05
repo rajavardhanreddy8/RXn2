@@ -23,6 +23,16 @@ const LoginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 })
 
+const sessionCookie = () => {
+  const crossSite = process.env.CROSS_SITE_COOKIES === 'true'
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production' || crossSite,
+    sameSite: crossSite ? 'none' as const : 'lax' as const,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  }
+}
+
 authRouter.post('/register', async (req: Request, res: Response): Promise<void> => {
   // Accounts are provisioned by the project administrator. Tests retain the
   // registration path so the authenticated-workspace contract stays covered.
@@ -59,12 +69,7 @@ authRouter.post('/register', async (req: Request, res: Response): Promise<void> 
 
     const token = generateToken(user)
 
-    res.cookie('synthai_session', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    })
+    res.cookie('synthai_session', token, sessionCookie())
 
     res.status(201).json({
       user: {
@@ -108,12 +113,7 @@ authRouter.post('/login', async (req: Request, res: Response): Promise<void> => 
 
     const token = generateToken(user)
 
-    res.cookie('synthai_session', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    })
+    res.cookie('synthai_session', token, sessionCookie())
 
     res.json({
       user: {
