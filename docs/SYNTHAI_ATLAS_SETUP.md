@@ -28,12 +28,25 @@ npm --prefix apps/server run seed:admin
 
 Existing local demo records do not appear in Atlas automatically. An explicit export/import is required if they are needed. Hosted MongoDB credentials belong in backend secrets, never React environment variables or browser bundles. Sites must call a hosted backend capable of MongoDB connections.
 
+## Grant application access
+
+The dashboard has no public sign-up screen. Keep `SYNTHAI_ALLOW_REGISTRATION=false` in the backend environment. Provision credentials from the private backend terminal:
+
+```powershell
+$env:SYNTHAI_USER_EMAIL = 'student@example.com'
+$env:SYNTHAI_USER_PASSWORD = 'use-a-private-password-of-at-least-12-characters'
+$env:SYNTHAI_USER_NAME = 'Student'
+npm --prefix apps/server run seed:user
+```
+
+The administrator account uses `SYNTHAI_ADMIN_EMAIL` and `SYNTHAI_ADMIN_PASSWORD` with `npm --prefix apps/server run seed:admin`. These commands create or update only the named application account. They never reveal or modify Atlas credentials.
+
 ## Completion checkpoints
 
 - [ ] Free cluster created in the owner's account.
 - [ ] Dedicated database user and allowed backend IPs configured.
 - [ ] Private Atlas URI installed.
-- [ ] Atlas authenticated ping passed.
+- [x] Atlas authenticated ping passed.
 - [ ] Administrator provisioned and application sign-in checked.
 - [ ] A project and comparison saved and recovered after backend restart.
 

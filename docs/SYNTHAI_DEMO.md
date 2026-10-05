@@ -70,7 +70,7 @@ The server loads the root `.env`, including MongoDB at `127.0.0.1:27017` and Pyt
 
 ## 4. A 3-5 minute presentation
 
-1. Open **Projects & Workspace**, click **Create Account**, and register a local demo account. Explain that the server fixes the public role to student, hashes passwords, and checks ownership.
+1. Provision the presentation account with `seed:user` or `seed:admin` as described in [Atlas setup](SYNTHAI_ATLAS_SETUP.md), then open **Projects & Workspace** and sign in. Explain that access is granted by the administrator, passwords are hashed, and each user is restricted to their own projects.
 2. Click **+ New Project**, choose **Demo benzamide target**, title it **SynthAI Presentation Demo**, and use 1000 g. Put **Synthetic course example** in the notes.
 3. Add a manual route with two synthetic steps: yields 85% and 80%, reaction durations 4 h and 6 h, and solvents Water and Ethanol. Use evidence labels such as `SYNTHETIC-DEMO-A`, not invented patent numbers. Save it.
 4. Add a one-step alternative with yield 68% and duration 12 h. Leave price and safety inputs missing. Save it.
@@ -81,9 +81,9 @@ The server loads the root `.env`, including MongoDB at `127.0.0.1:27017` and Pyt
 
 For an unavailable target, show the coverage gap and the manual draft option. For a Python outage, explain the visible error and show that drafts still exist. Keep **Show research tools** closed during the short course presentation unless you have the research datasets loaded.
 
-## 5. Optional admin reviewer
+## 5. Administrator and user provisioning
 
-For native startup, set `SYNTHAI_ADMIN_EMAIL` and a private `SYNTHAI_ADMIN_PASSWORD` of at least 12 characters in your terminal, then run `npm --prefix apps/server run seed:admin`. Sign in with that account to read all projects and saved history. Admin viewing does not grant permission to edit another student's project. Public registration cannot create an admin.
+For native startup, set `SYNTHAI_ADMIN_EMAIL` and a private `SYNTHAI_ADMIN_PASSWORD` of at least 12 characters in your terminal, then run `npm --prefix apps/server run seed:admin`. To grant a standard account, set `SYNTHAI_USER_EMAIL`, `SYNTHAI_USER_PASSWORD`, and optional `SYNTHAI_USER_NAME`, then run `npm --prefix apps/server run seed:user`. Sign in with the provisioned account. Admin viewing does not grant permission to edit another student's project. Public registration is disabled by default.
 
 ## 6. Checks before presenting
 

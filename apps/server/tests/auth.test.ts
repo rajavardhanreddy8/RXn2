@@ -66,6 +66,31 @@ describe('Phase 1 - Authentication API', () => {
     assert.equal(res.body.error, 'Validation failed')
   })
 
+  it('blocks public registration outside the approved provisioning flow', async () => {
+    const original = {
+      nodeEnv: process.env.NODE_ENV,
+      lifecycle: process.env.npm_lifecycle_event,
+      nodeTestContext: process.env.NODE_TEST_CONTEXT,
+      allowRegistration: process.env.SYNTHAI_ALLOW_REGISTRATION,
+    }
+    process.env.NODE_ENV = 'production'
+    process.env.npm_lifecycle_event = ''
+    process.env.NODE_TEST_CONTEXT = ''
+    process.env.SYNTHAI_ALLOW_REGISTRATION = 'false'
+    try {
+      const res = await request(app).post('/api/v1/auth/register').send({
+        email: 'blocked@example.com',
+        password: 'password123',
+      })
+      assert.equal(res.status, 403)
+    } finally {
+      process.env.NODE_ENV = original.nodeEnv
+      process.env.npm_lifecycle_event = original.lifecycle
+      process.env.NODE_TEST_CONTEXT = original.nodeTestContext
+      process.env.SYNTHAI_ALLOW_REGISTRATION = original.allowRegistration
+    }
+  })
+
   it('logs in an existing user with valid credentials', async () => {
     await request(app).post('/api/v1/auth/register').send({
       email: 'student1@example.com',

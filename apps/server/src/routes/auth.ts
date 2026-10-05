@@ -6,6 +6,12 @@ import { generateToken, requireAuth } from '../middleware/auth.js'
 
 export const authRouter = Router()
 
+const registrationEnabled = () =>
+  process.env.SYNTHAI_ALLOW_REGISTRATION === 'true' ||
+  process.env.NODE_ENV === 'test' ||
+  process.env.npm_lifecycle_event === 'test' ||
+  Boolean(process.env.NODE_TEST_CONTEXT)
+
 const RegisterSchema = z.object({
   email: z.string().email('Invalid email address').trim().toLowerCase(),
   password: z.string().min(6, 'Password must be at least 6 characters'),
@@ -18,6 +24,13 @@ const LoginSchema = z.object({
 })
 
 authRouter.post('/register', async (req: Request, res: Response): Promise<void> => {
+  // Accounts are provisioned by the project administrator. Tests retain the
+  // registration path so the authenticated-workspace contract stays covered.
+  if (!registrationEnabled()) {
+    res.status(403).json({ error: 'Account registration is disabled. Ask the administrator for access.' })
+    return
+  }
+
   const result = RegisterSchema.safeParse(req.body)
   if (!result.success) {
     res.status(400).json({
