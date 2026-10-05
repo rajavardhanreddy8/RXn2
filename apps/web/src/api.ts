@@ -58,8 +58,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   })
-  const body = await response.json()
+  const contentType = response.headers.get('content-type') || ''
+  const body = contentType.includes('application/json') ? await response.json() : await response.text()
   if (!response.ok) {
+    if (typeof body === 'string') {
+      if (url.startsWith('/api/v1') && !hostedWorkspaceEndpoint && window.location.hostname.endsWith('chatgpt.site')) {
+        throw new Error('Workspace sign-in is not configured for this Site yet.')
+      }
+      throw new Error('The requested service is unavailable.')
+    }
     const message =
       typeof body.error === 'string'
         ? body.error
@@ -69,6 +76,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
         ? body.details.join(', ')
         : JSON.stringify(body.error || body.detail || body)
     throw new Error(message)
+  }
+  if (typeof body === 'string') {
+    throw new Error('The service returned an unexpected response.')
   }
   return body as T
 }
